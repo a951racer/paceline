@@ -1,0 +1,39 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+:root {
+  /* Core palette */
+  --graphite: #111214;
+  --graphite-light: #1A1B1F;
+  --graphite-card: #1E1F24;
+  --silver: #C5CBD3;
+  --copper: #B87333;
+  --copper-dark: #9A5F2A;
+  --copper-light: #D4915A;
+
+  --background: #111214;
+  --foreground: #F0F1F3;
+  --primary: #B87333;
+  --primary-foreground: #ffffff;
+  --secondary: #1E1F24;
+  --secondary-foreground: #F0F1F3;
+  --accent: #B87333;
+  --accent-foreground: #ffffff;
+  --muted: #1E1F24;
+  --muted-foreground: #9CA3AF;
+  --border: #2E3038;
+  --ring: #B87333;
+  --radius: 0.5rem;
+
+  --card: #1E1F24;
+  --card-foreground: #F0F1F3;
+  --card-border: #2E3038;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
