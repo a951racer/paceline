@@ -14,14 +14,13 @@ import type {
   CompetitionType,
   ScoringMethod,
   EligibilityCriteria,
-  Category,
-  RaceType,
 } from "@/types";
 
 /** Data for creating a new competition */
 export interface CreateCompetitionData {
   name: string;
   description?: string;
+  leagueId: string;
   seasonId: string;
   type: CompetitionType;
   scoringMethod: ScoringMethod;
@@ -41,8 +40,8 @@ export interface UpdateCompetitionData {
 
 /** Minimal race result shape needed for eligibility evaluation */
 export interface EligibilityRaceResult {
-  category: Category;
-  raceType: RaceType;
+  category: string;
+  raceType: string;
   raceId: string;
 }
 
@@ -59,6 +58,7 @@ export class CompetitionService {
     const competition = await CompetitionModel.create({
       name: data.name,
       description: data.description,
+      leagueId: data.leagueId,
       seasonId: data.seasonId,
       type: data.type,
       scoringMethod: data.scoringMethod,
@@ -135,14 +135,20 @@ export class CompetitionService {
   }
 
   /**
-   * Get all active competitions.
+   * Get all active competitions, optionally filtered by leagueId.
    *
    * Requirement 6.12: Support multiple parallel Competitions simultaneously
+   * Requirements 9.2, 9.3: Competitions scoped to league-season
    */
-  async getActive(): Promise<CompetitionDocument[]> {
+  async getActive(leagueId?: string): Promise<CompetitionDocument[]> {
     await connectMongoDB();
 
-    const competitions = await CompetitionModel.find({ isActive: true });
+    const query: Record<string, unknown> = { isActive: true };
+    if (leagueId) {
+      query.leagueId = leagueId;
+    }
+
+    const competitions = await CompetitionModel.find(query);
     return competitions;
   }
 
@@ -158,15 +164,20 @@ export class CompetitionService {
   }
 
   /**
-   * List all competitions, optionally filtered by seasonId.
+   * List all competitions, optionally filtered by leagueId and/or seasonId.
    * Sorted by name ascending.
+   *
+   * Requirements 9.2, 9.3: Competitions scoped to league-season
    */
-  async list(seasonId?: string): Promise<CompetitionDocument[]> {
+  async list(options?: { leagueId?: string; seasonId?: string }): Promise<CompetitionDocument[]> {
     await connectMongoDB();
 
     const query: Record<string, unknown> = {};
-    if (seasonId) {
-      query.seasonId = seasonId;
+    if (options?.leagueId) {
+      query.leagueId = options.leagueId;
+    }
+    if (options?.seasonId) {
+      query.seasonId = options.seasonId;
     }
 
     const competitions = await CompetitionModel.find(query).sort({ name: 1 });

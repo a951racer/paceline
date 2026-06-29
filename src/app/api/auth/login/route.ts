@@ -67,6 +67,7 @@ async function handleLogin(request: Request): Promise<NextResponse> {
       userId: person._id.toString(),
       email: person.email,
       roles: person.roles,
+      adminScope: person.adminScope,
     });
 
     return NextResponse.json(

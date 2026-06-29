@@ -1,22 +1,22 @@
 "use client";
 
 import React from "react";
-import { Bell, ChevronDown, Globe } from "lucide-react";
-import { useTheme } from "@/hooks/use-theme";
+import { Bell } from "lucide-react";
+import { LeagueSelector } from "@/components/league-selector";
 
+/**
+ * TopBar - Authenticated top navigation bar.
+ *
+ * Replaces static league name text with the interactive LeagueSelector component.
+ * Branding from active league's configuration is applied via ThemeProvider/CSS custom properties.
+ *
+ * Requirements: 6.1, 11.3
+ */
 export function TopBar() {
-  const { branding } = useTheme();
-
-  const leagueName = branding?.leagueName ?? "Kansas City Racing League";
-
   return (
     <header className="flex h-12 items-center justify-between border-b border-[#2E3038] bg-[#111214] px-4 sm:px-6">
-      {/* League name selector */}
-      <button className="flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium text-white hover:bg-[#1E1F24] transition-colors">
-        <Globe className="h-4 w-4 text-[#9CA3AF]" />
-        <span className="uppercase tracking-wide">{leagueName}</span>
-        <ChevronDown className="h-3.5 w-3.5 text-[#6B7280]" />
-      </button>
+      {/* League selector dropdown */}
+      <LeagueSelector />
 
       {/* Right actions */}
       <div className="flex items-center gap-3">
@@ -27,7 +27,7 @@ export function TopBar() {
           aria-label="Notifications"
         >
           <Bell className="h-5 w-5" />
-          <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[#B87333] text-[9px] font-bold text-white">
+          <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--color-primary,#B87333)] text-[9px] font-bold text-white">
             1
           </span>
         </button>

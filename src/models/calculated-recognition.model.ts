@@ -56,6 +56,7 @@ export const CalculatedRecognitionModel: Model<CalculatedRecognitionDocument> =
 export interface EarnedRecognitionDocument extends Document {
   recognitionId: mongoose.Types.ObjectId;
   personId: mongoose.Types.ObjectId;
+  leagueId: mongoose.Types.ObjectId;
   seasonId: mongoose.Types.ObjectId;
   computedValue: number;
   earnedAt: Date;
@@ -69,6 +70,7 @@ const EarnedRecognitionSchema = new Schema<EarnedRecognitionDocument>(
       required: true,
     },
     personId: { type: Schema.Types.ObjectId, ref: "Person", required: true },
+    leagueId: { type: Schema.Types.ObjectId, required: true, ref: "League" },
     seasonId: { type: Schema.Types.ObjectId, ref: "Season", required: true },
     computedValue: { type: Number, required: true },
     earnedAt: { type: Date, required: true, default: Date.now },

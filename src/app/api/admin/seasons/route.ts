@@ -12,9 +12,23 @@ import { createSeasonSchema } from "@/lib/validations";
 
 const seasonService = new SeasonService();
 
-const handleGet: AuthenticatedHandler = async () => {
+const handleGet: AuthenticatedHandler = async (request) => {
   try {
-    const seasons = await seasonService.list();
+    const url = new URL(request.url);
+    const leagueId = url.searchParams.get("leagueId");
+
+    if (!leagueId) {
+      return NextResponse.json(
+        {
+          status: 400,
+          code: "LEAGUE_REQUIRED",
+          message: "leagueId query parameter is required",
+        },
+        { status: 400 }
+      );
+    }
+
+    const seasons = await seasonService.list(leagueId);
 
     return NextResponse.json({ data: seasons }, { status: 200 });
   } catch (error) {
@@ -32,6 +46,20 @@ const handleGet: AuthenticatedHandler = async () => {
 
 const handlePost: AuthenticatedHandler = async (request) => {
   try {
+    const url = new URL(request.url);
+    const leagueId = url.searchParams.get("leagueId");
+
+    if (!leagueId) {
+      return NextResponse.json(
+        {
+          status: 400,
+          code: "LEAGUE_REQUIRED",
+          message: "leagueId query parameter is required",
+        },
+        { status: 400 }
+      );
+    }
+
     const body = await request.json();
     const parsed = createSeasonSchema.safeParse(body);
 
@@ -47,7 +75,7 @@ const handlePost: AuthenticatedHandler = async (request) => {
       );
     }
 
-    const season = await seasonService.create(parsed.data);
+    const season = await seasonService.create({ ...parsed.data, leagueId });
 
     return NextResponse.json({ data: season }, { status: 201 });
   } catch (error) {
@@ -57,7 +85,18 @@ const handlePost: AuthenticatedHandler = async (request) => {
       return NextResponse.json(
         {
           status: 409,
-          code: "SEASON_OVERLAP",
+          code: "SEASON_OVERLAP_IN_LEAGUE",
+          message: error.message,
+        },
+        { status: 409 }
+      );
+    }
+
+    if (error instanceof Error && error.message.includes("Cannot activate")) {
+      return NextResponse.json(
+        {
+          status: 409,
+          code: "ACTIVE_SEASON_EXISTS",
           message: error.message,
         },
         { status: 409 }

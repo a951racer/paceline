@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { Medal, Plus, Pencil, Trash2, X, CheckCircle2, XCircle } from "lucide-react";
+import { adminFetch } from "@/lib/admin-fetch";
 
 interface Award {
   _id: string;
@@ -46,7 +47,7 @@ export default function AdminAwardsPage() {
   const fetchAwards = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/admin/awards");
+      const res = await adminFetch("/api/admin/awards");
       if (!res.ok) throw new Error("Failed to fetch awards");
       const json = await res.json();
       setAwards(json.data || []);
@@ -60,7 +61,7 @@ export default function AdminAwardsPage() {
   const fetchNominations = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/admin/nominations?status=pending");
+      const res = await adminFetch("/api/admin/nominations?status=pending");
       if (!res.ok) throw new Error("Failed to fetch nominations");
       const json = await res.json();
       setNominations(json.data || []);
@@ -114,7 +115,7 @@ export default function AdminAwardsPage() {
       const url = editingAward ? `/api/admin/awards/${editingAward._id}` : "/api/admin/awards";
       const method = editingAward ? "PUT" : "POST";
 
-      const res = await fetch(url, {
+      const res = await adminFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -137,7 +138,7 @@ export default function AdminAwardsPage() {
   const handleDelete = async (award: Award) => {
     if (!confirm(`Delete award "${award.name}"?`)) return;
     try {
-      const res = await fetch(`/api/admin/awards/${award._id}`, { method: "DELETE" });
+      const res = await adminFetch(`/api/admin/awards/${award._id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete award");
       fetchAwards();
     } catch (err) {
@@ -147,7 +148,7 @@ export default function AdminAwardsPage() {
 
   const handleNominationAction = async (nominationId: string, action: "approve" | "reject") => {
     try {
-      const res = await fetch(`/api/admin/nominations/${nominationId}`, {
+      const res = await adminFetch(`/api/admin/nominations/${nominationId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),

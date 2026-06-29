@@ -15,6 +15,7 @@ const assignAwardSchema = z.object({
   awardId: z.string().min(1, "Award ID is required"),
   personId: z.string().min(1, "Person ID is required"),
   seasonId: z.string().min(1, "Season ID is required"),
+  leagueId: z.string().min(1, "League ID is required"),
 });
 
 const handlePost: AuthenticatedHandler = async (request) => {
@@ -34,8 +35,8 @@ const handlePost: AuthenticatedHandler = async (request) => {
       );
     }
 
-    const { awardId, personId, seasonId } = parsed.data;
-    const assignedAward = await awardService.assign(awardId, personId, seasonId);
+    const { awardId, personId, seasonId, leagueId } = parsed.data;
+    const assignedAward = await awardService.assign(awardId, personId, seasonId, leagueId);
 
     return NextResponse.json({ data: assignedAward }, { status: 201 });
   } catch (error) {

@@ -3,7 +3,6 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { Menu, X } from "lucide-react";
-import { useTheme } from "@/hooks/use-theme";
 
 const navLinks = [
   { label: "FEATURES", href: "/features" },
@@ -13,20 +12,16 @@ const navLinks = [
 ];
 
 export function PublicNavBar() {
-  const { branding } = useTheme();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  const leagueName = branding?.leagueName ?? "Paceline";
-  const logoUrl = branding?.logos?.horizontal;
 
   return (
     <nav className="w-full bg-[#111214] border-b border-[#2E3038]/50">
       <div className="mx-auto flex max-w-[1600px] items-center justify-between px-6 py-4 sm:px-10 lg:px-16">
-        {/* Logo and league name */}
+        {/* Logo */}
         <Link href="/" className="flex items-center">
           <img
-            src={logoUrl || "/images/logo-horizontal.png"}
-            alt={`${leagueName} logo`}
+            src="/images/logo-horizontal.png"
+            alt="Paceline logo"
             className="h-8 w-auto"
           />
         </Link>

@@ -47,23 +47,26 @@ export class AwardService {
   }
 
   /**
-   * Admin-assign an award to a person for a specific season.
+   * Admin-assign an award to a person for a specific league-season.
    *
    * Requirement 8.2: Record award, recipient, date, season, and nomination source
    * Requirement 8.3: Allow awards to be assigned to any person regardless of role
    * Requirement 8.9: Track whether award originated from admin-assigned or peer-nominated source
    * Requirement 8.10: Associate each assigned award with the active season at time of assignment
+   * Requirement 5.5: Award assignment scoped to active league-season context
    */
   async assign(
     awardId: string,
     personId: string,
-    seasonId: string
+    seasonId: string,
+    leagueId: string
   ): Promise<AssignedAwardDocument> {
     await connectMongoDB();
 
     const assignedAward = await AssignedAwardModel.create({
       awardId,
       recipientId: personId,
+      leagueId,
       seasonId,
       assignedAt: new Date(),
       source: "admin_assigned",
@@ -107,9 +110,11 @@ export class AwardService {
    * Requirement 8.8: Require admin approval before award is assigned
    * Requirement 8.9: Track that the award originated from peer-nominated source
    * Requirement 8.10: Associate assigned award with active season
+   * Requirement 5.5: Award assignment scoped to active league-season context
    */
   async approveNomination(
     nominationId: string,
+    leagueId: string,
     reviewerId?: string
   ): Promise<AssignedAwardDocument> {
     await connectMongoDB();
@@ -137,7 +142,7 @@ export class AwardService {
     await nomination.save();
 
     // Get the active season for assignment
-    const activeSeason = await SeasonModel.findOne({ isActive: true });
+    const activeSeason = await SeasonModel.findOne({ isActive: true, leagueId });
     const seasonId = activeSeason
       ? activeSeason._id.toString()
       : nomination.seasonId.toString();
@@ -146,6 +151,7 @@ export class AwardService {
     const assignedAward = await AssignedAwardModel.create({
       awardId: nomination.awardId,
       recipientId: nomination.nomineeId,
+      leagueId,
       seasonId,
       assignedAt: new Date(),
       source: "peer_nominated",

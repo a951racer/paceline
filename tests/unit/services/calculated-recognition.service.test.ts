@@ -107,6 +107,7 @@ describe("CalculatedRecognitionService", () => {
   describe("compute", () => {
     it("should run all active recognitions for the season (Req 17.4)", async () => {
       const seasonId = new mongoose.Types.ObjectId().toString();
+      const leagueId = new mongoose.Types.ObjectId().toString();
 
       // Create two active recognitions
       await service.define({
@@ -157,17 +158,20 @@ describe("CalculatedRecognitionService", () => {
           fields: [],
         } as never);
 
-      const results = await service.compute(seasonId);
+      const results = await service.compute(seasonId, leagueId);
 
       expect(results).toHaveLength(2);
       expect(results[0].personId.toString()).toBe(personId);
       expect(results[0].computedValue).toBe(7);
+      expect(results[0].leagueId.toString()).toBe(leagueId);
       expect(results[1].personId.toString()).toBe(personId);
       expect(results[1].computedValue).toBe(5);
+      expect(results[1].leagueId.toString()).toBe(leagueId);
     });
 
     it("should skip inactive recognitions", async () => {
       const seasonId = new mongoose.Types.ObjectId().toString();
+      const leagueId = new mongoose.Types.ObjectId().toString();
 
       await service.define({
         name: "Inactive Recognition",
@@ -178,7 +182,7 @@ describe("CalculatedRecognitionService", () => {
         isActive: false,
       });
 
-      const results = await service.compute(seasonId);
+      const results = await service.compute(seasonId, leagueId);
 
       expect(results).toHaveLength(0);
       expect(mockQueryWithRetry).not.toHaveBeenCalled();
@@ -186,6 +190,7 @@ describe("CalculatedRecognitionService", () => {
 
     it("should replace previous earned recognition on recomputation", async () => {
       const seasonId = new mongoose.Types.ObjectId().toString();
+      const leagueId = new mongoose.Types.ObjectId().toString();
       const personId1 = new mongoose.Types.ObjectId().toString();
       const personId2 = new mongoose.Types.ObjectId().toString();
 
@@ -214,9 +219,9 @@ describe("CalculatedRecognitionService", () => {
         fields: [],
       } as never);
 
-      await service.compute(seasonId);
+      await service.compute(seasonId, leagueId);
 
-      let earned = await EarnedRecognitionModel.find({ seasonId });
+      let earned = await EarnedRecognitionModel.find({ seasonId, leagueId });
       expect(earned).toHaveLength(1);
       expect(earned[0].personId.toString()).toBe(personId1);
 
@@ -236,9 +241,9 @@ describe("CalculatedRecognitionService", () => {
         fields: [],
       } as never);
 
-      await service.compute(seasonId);
+      await service.compute(seasonId, leagueId);
 
-      earned = await EarnedRecognitionModel.find({ seasonId });
+      earned = await EarnedRecognitionModel.find({ seasonId, leagueId });
       expect(earned).toHaveLength(1);
       expect(earned[0].personId.toString()).toBe(personId2);
       expect(earned[0].computedValue).toBe(11);
@@ -381,6 +386,7 @@ describe("CalculatedRecognitionService", () => {
   describe("wireRecognitionRecalculation", () => {
     it("should trigger recognition computation when standings are updated (Req 17.4)", async () => {
       const seasonId = new mongoose.Types.ObjectId().toString();
+      const leagueId = new mongoose.Types.ObjectId().toString();
 
       // Create an active recognition
       await service.define({
@@ -412,7 +418,7 @@ describe("CalculatedRecognitionService", () => {
       wireRecognitionRecalculation();
 
       // Simulate standings update notification
-      notifyStandingsUpdated(seasonId);
+      notifyStandingsUpdated(seasonId, leagueId);
 
       // Wait for the async callback to complete
       await new Promise((resolve) => setTimeout(resolve, 200));
@@ -422,22 +428,23 @@ describe("CalculatedRecognitionService", () => {
       expect(earned).toHaveLength(1);
       expect(earned[0].personId.toString()).toBe(personId);
       expect(earned[0].computedValue).toBe(8);
+      expect(earned[0].leagueId.toString()).toBe(leagueId);
     });
   });
 
   describe("notifyStandingsUpdated", () => {
     it("should not throw when no callback is set", () => {
       setOnStandingsUpdatedCallback(null);
-      expect(() => notifyStandingsUpdated("some-season-id")).not.toThrow();
+      expect(() => notifyStandingsUpdated("some-season-id", "some-league-id")).not.toThrow();
     });
 
-    it("should call the registered callback", () => {
+    it("should call the registered callback with seasonId and leagueId", () => {
       const mockCallback = jest.fn();
       setOnStandingsUpdatedCallback(mockCallback);
 
-      notifyStandingsUpdated("test-season-id");
+      notifyStandingsUpdated("test-season-id", "test-league-id");
 
-      expect(mockCallback).toHaveBeenCalledWith("test-season-id");
+      expect(mockCallback).toHaveBeenCalledWith("test-season-id", "test-league-id");
     });
   });
 });

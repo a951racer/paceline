@@ -9,11 +9,13 @@ import { NextResponse } from "next/server";
 import { withAdmin, type AuthenticatedHandler } from "@/middleware/auth";
 import { withRateLimit } from "@/middleware/rate-limit";
 import { RaceService } from "@/services/race.service";
+import { ReferenceDataService } from "@/services/reference-data.service";
 import { updateRaceSchema } from "@/lib/validations";
 import { connectMongoDB } from "@/lib/db/mongodb";
 import { RaceModel } from "@/models/race.model";
 
 const raceService = new RaceService();
+const referenceDataService = new ReferenceDataService();
 
 const handleGet: AuthenticatedHandler = async (request) => {
   try {
@@ -67,6 +69,61 @@ const handlePut: AuthenticatedHandler = async (request) => {
         },
         { status: 400 }
       );
+    }
+
+    // Runtime reference data validation for raceType and categories
+    if (parsed.data.raceType || parsed.data.categories) {
+      // Get leagueId from the existing race
+      await connectMongoDB();
+      const existingRace = await RaceModel.findById(raceId).select("leagueId").lean();
+      if (!existingRace) {
+        return NextResponse.json(
+          {
+            status: 404,
+            code: "NOT_FOUND",
+            message: `Race with id "${raceId}" not found`,
+          },
+          { status: 404 }
+        );
+      }
+
+      const leagueId = existingRace.leagueId.toString();
+
+      if (parsed.data.raceType) {
+        const raceTypeValid = await referenceDataService.validateKeys(
+          leagueId,
+          "race_type",
+          [parsed.data.raceType]
+        );
+        if (!raceTypeValid) {
+          return NextResponse.json(
+            {
+              status: 422,
+              code: "INVALID_REFERENCE_DATA_KEY",
+              message: `Invalid race type: "${parsed.data.raceType}" is not an active reference data key`,
+            },
+            { status: 422 }
+          );
+        }
+      }
+
+      if (parsed.data.categories && parsed.data.categories.length > 0) {
+        const categoriesValid = await referenceDataService.validateKeys(
+          leagueId,
+          "category",
+          parsed.data.categories
+        );
+        if (!categoriesValid) {
+          return NextResponse.json(
+            {
+              status: 422,
+              code: "INVALID_REFERENCE_DATA_KEY",
+              message: `One or more categories are not active reference data keys`,
+            },
+            { status: 422 }
+          );
+        }
+      }
     }
 
     const race = await raceService.update(raceId, parsed.data);

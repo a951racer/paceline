@@ -1,18 +1,10 @@
 import { z } from "zod";
 
-/** Valid organization types */
-const organizationTypeValues = [
-  "team",
-  "promoter",
-  "sponsor",
-  "other",
-] as const;
-
 // --- Create Schema (POST) ---
 
 export const createOrganizationSchema = z.object({
   name: z.string().min(1, "Organization name is required"),
-  type: z.enum(organizationTypeValues),
+  type: z.string().min(1, "Organization type is required"),
   description: z.string().optional(),
   memberIds: z.array(z.string()).default([]),
 });
@@ -21,7 +13,7 @@ export const createOrganizationSchema = z.object({
 
 export const updateOrganizationSchema = z.object({
   name: z.string().min(1, "Organization name is required").optional(),
-  type: z.enum(organizationTypeValues).optional(),
+  type: z.string().min(1, "Organization type is required").optional(),
   description: z.string().optional(),
   memberIds: z.array(z.string()).optional(),
 });

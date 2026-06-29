@@ -2,18 +2,20 @@
  * GET /api/admin/people/[personId] - Get a person by ID
  * PUT /api/admin/people/[personId] - Update a person
  * DELETE /api/admin/people/[personId] - Delete a person
- * @see Requirements 1.1, 1.2
+ * @see Requirements 1.1, 1.2, 9.5, 2.5
  */
 
 import { NextResponse } from "next/server";
 import { withAdmin, type AuthenticatedHandler } from "@/middleware/auth";
 import { withRateLimit } from "@/middleware/rate-limit";
 import { PersonService } from "@/services/person.service";
+import { ReferenceDataService } from "@/services/reference-data.service";
 import { updatePersonSchema } from "@/lib/validations";
 import { connectMongoDB } from "@/lib/db/mongodb";
 import { PersonModel } from "@/models/person.model";
 
 const personService = new PersonService();
+const referenceDataService = new ReferenceDataService();
 
 type RouteContext = { params: Promise<{ personId: string }> };
 
@@ -67,6 +69,29 @@ const handlePut: AuthenticatedHandler = async (request) => {
         },
         { status: 400 }
       );
+    }
+
+    // Runtime reference data validation for personTypes
+    if (parsed.data.personTypes && parsed.data.personTypes.length > 0) {
+      const leagueId = url.searchParams.get("leagueId");
+
+      if (leagueId) {
+        const personTypesValid = await referenceDataService.validateKeys(
+          leagueId,
+          "person_type",
+          parsed.data.personTypes
+        );
+        if (!personTypesValid) {
+          return NextResponse.json(
+            {
+              status: 422,
+              code: "INVALID_REFERENCE_DATA_KEY",
+              message: `One or more person types are not active reference data keys`,
+            },
+            { status: 422 }
+          );
+        }
+      }
     }
 
     const person = await personService.update(personId, parsed.data);

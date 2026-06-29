@@ -3,12 +3,13 @@
  *
  * Public endpoint - no authentication required.
  * Returns all achievements and awards earned by current team members,
- * attributed to the individual who earned it, grouped by season.
+ * attributed to the individual who earned it, grouped by league then season.
+ * Displays entries from all leagues regardless of active context.
  *
  * Since the team trophy case is computed dynamically from current memberIds,
  * membership changes (add/remove) automatically reflect in the response.
  *
- * @see Requirements 9.7, 9.8, 9.9, 9.10, 9.11, 9.12, 9.13
+ * @see Requirements 8.1, 8.2, 8.3, 8.5
  */
 
 import { NextResponse } from "next/server";
@@ -19,6 +20,7 @@ import { PersonModel } from "@/models/person.model";
 import { EarnedAchievementModel } from "@/models/achievement.model";
 import { AssignedAwardModel } from "@/models/award.model";
 import { SeasonModel } from "@/models/season.model";
+import { LeagueModel } from "@/models/league.model";
 import mongoose from "mongoose";
 
 const handleGet = async (request: Request): Promise<NextResponse> => {
@@ -77,7 +79,7 @@ const handleGet = async (request: Request): Promise<NextResponse> => {
           data: {
             organizationId: organization._id.toString(),
             organizationName: organization.name,
-            seasons: [],
+            leagues: [],
           },
         },
         { status: 200 }
@@ -106,12 +108,16 @@ const handleGet = async (request: Request): Promise<NextResponse> => {
       recipientId: { $in: memberIds },
     }).populate("awardId");
 
-    // Get all unique season IDs
+    // Collect all unique leagueIds and seasonIds
+    const leagueIds = new Set<string>();
     const seasonIds = new Set<string>();
+
     for (const ea of earnedAchievements) {
+      if (ea.leagueId) leagueIds.add(ea.leagueId.toString());
       seasonIds.add(ea.seasonId.toString());
     }
     for (const aa of assignedAwards) {
+      if (aa.leagueId) leagueIds.add(aa.leagueId.toString());
       seasonIds.add(aa.seasonId.toString());
     }
 
@@ -122,11 +128,23 @@ const handleGet = async (request: Request): Promise<NextResponse> => {
           data: {
             organizationId: organization._id.toString(),
             organizationName: organization.name,
-            seasons: [],
+            leagues: [],
           },
         },
         { status: 200 }
       );
+    }
+
+    // Fetch league details
+    const leagues = await LeagueModel.find({
+      _id: { $in: Array.from(leagueIds) },
+    });
+    const leagueMap = new Map<string, { leagueId: string; leagueName: string }>();
+    for (const league of leagues) {
+      leagueMap.set(league._id.toString(), {
+        leagueId: league._id.toString(),
+        leagueName: league.name,
+      });
     }
 
     // Fetch season details
@@ -134,83 +152,127 @@ const handleGet = async (request: Request): Promise<NextResponse> => {
       _id: { $in: Array.from(seasonIds) },
     }).sort({ startDate: -1 });
 
-    // Build season map
-    const seasonMap = new Map<string, { seasonId: string; seasonName: string }>();
+    const seasonMap = new Map<string, { seasonId: string; seasonName: string; startDate: Date }>();
     for (const season of seasons) {
       seasonMap.set(season._id.toString(), {
         seasonId: season._id.toString(),
         seasonName: season.name,
+        startDate: season.startDate,
       });
     }
 
-    // Group achievements and awards by season with person attribution
-    const seasonData: Record<
+    // Group by league, then by season within each league
+    const leagueData: Record<
       string,
       {
-        seasonId: string;
-        seasonName: string;
-        achievements: Array<{
-          achievementId: Record<string, unknown>;
-          personId: { personId: string; personName: string };
-          earnedAt: Date;
-        }>;
-        awards: Array<{
-          awardId: Record<string, unknown>;
-          personId: { personId: string; personName: string };
-          assignedAt: Date;
-          source: string;
-        }>;
+        leagueId: string;
+        leagueName: string;
+        seasons: Record<
+          string,
+          {
+            seasonId: string;
+            seasonName: string;
+            startDate: Date;
+            achievements: Array<{
+              achievementId: Record<string, unknown>;
+              personId: { personId: string; personName: string };
+              earnedAt: Date;
+            }>;
+            awards: Array<{
+              awardId: Record<string, unknown>;
+              personId: { personId: string; personName: string };
+              assignedAt: Date;
+              source: string;
+            }>;
+          }
+        >;
       }
     > = {};
 
-    // Initialize season entries
-    for (const [id, info] of seasonMap.entries()) {
-      seasonData[id] = {
-        seasonId: info.seasonId,
-        seasonName: info.seasonName,
-        achievements: [],
-        awards: [],
-      };
-    }
-
-    // Group achievements by season with person attribution
+    // Group achievements by league then season with person attribution
     for (const ea of earnedAchievements) {
+      const lid = ea.leagueId ? ea.leagueId.toString() : "unknown";
       const sid = ea.seasonId.toString();
       const pid = ea.personId.toString();
-      if (seasonData[sid]) {
-        seasonData[sid].achievements.push({
-          achievementId: ea.achievementId as unknown as Record<string, unknown>,
-          personId: memberMap.get(pid) || { personId: pid, personName: "Unknown" },
-          earnedAt: ea.earnedAt,
-        });
+
+      if (!leagueData[lid]) {
+        const leagueInfo = leagueMap.get(lid);
+        leagueData[lid] = {
+          leagueId: leagueInfo?.leagueId ?? lid,
+          leagueName: leagueInfo?.leagueName ?? "Unknown League",
+          seasons: {},
+        };
       }
+
+      if (!leagueData[lid].seasons[sid]) {
+        const seasonInfo = seasonMap.get(sid);
+        leagueData[lid].seasons[sid] = {
+          seasonId: seasonInfo?.seasonId ?? sid,
+          seasonName: seasonInfo?.seasonName ?? "Unknown Season",
+          startDate: seasonInfo?.startDate ?? new Date(0),
+          achievements: [],
+          awards: [],
+        };
+      }
+
+      leagueData[lid].seasons[sid].achievements.push({
+        achievementId: ea.achievementId as unknown as Record<string, unknown>,
+        personId: memberMap.get(pid) || { personId: pid, personName: "Unknown" },
+        earnedAt: ea.earnedAt,
+      });
     }
 
-    // Group awards by season with person attribution
+    // Group awards by league then season with person attribution
     for (const aa of assignedAwards) {
+      const lid = aa.leagueId ? aa.leagueId.toString() : "unknown";
       const sid = aa.seasonId.toString();
       const pid = aa.recipientId.toString();
-      if (seasonData[sid]) {
-        seasonData[sid].awards.push({
-          awardId: aa.awardId as unknown as Record<string, unknown>,
-          personId: memberMap.get(pid) || { personId: pid, personName: "Unknown" },
-          assignedAt: aa.assignedAt,
-          source: aa.source,
-        });
+
+      if (!leagueData[lid]) {
+        const leagueInfo = leagueMap.get(lid);
+        leagueData[lid] = {
+          leagueId: leagueInfo?.leagueId ?? lid,
+          leagueName: leagueInfo?.leagueName ?? "Unknown League",
+          seasons: {},
+        };
       }
+
+      if (!leagueData[lid].seasons[sid]) {
+        const seasonInfo = seasonMap.get(sid);
+        leagueData[lid].seasons[sid] = {
+          seasonId: seasonInfo?.seasonId ?? sid,
+          seasonName: seasonInfo?.seasonName ?? "Unknown Season",
+          startDate: seasonInfo?.startDate ?? new Date(0),
+          achievements: [],
+          awards: [],
+        };
+      }
+
+      leagueData[lid].seasons[sid].awards.push({
+        awardId: aa.awardId as unknown as Record<string, unknown>,
+        personId: memberMap.get(pid) || { personId: pid, personName: "Unknown" },
+        assignedAt: aa.assignedAt,
+        source: aa.source,
+      });
     }
 
-    // Convert to array ordered by season startDate descending
-    const orderedSeasons = seasons
-      .map((season) => seasonData[season._id.toString()])
-      .filter(Boolean);
+    // Convert to ordered array: leagues sorted by name, seasons sorted by startDate descending
+    const orderedLeagues = Object.values(leagueData)
+      .sort((a, b) => a.leagueName.localeCompare(b.leagueName))
+      .map((league) => ({
+        leagueId: league.leagueId,
+        leagueName: league.leagueName,
+        seasons: Object.values(league.seasons).sort(
+          (a, b) => b.startDate.getTime() - a.startDate.getTime()
+        ),
+      }));
 
     return NextResponse.json(
       {
         data: {
           organizationId: organization._id.toString(),
           organizationName: organization.name,
-          seasons: orderedSeasons,
+          leagues: orderedLeagues,
         },
       },
       { status: 200 }

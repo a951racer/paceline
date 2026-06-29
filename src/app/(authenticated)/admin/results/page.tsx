@@ -3,6 +3,8 @@
 import React, { useEffect, useState } from "react";
 import { ListOrdered, ChevronRight } from "lucide-react";
 import Link from "next/link";
+import { adminFetch } from "@/lib/admin-fetch";
+import { useReferenceData } from "@/hooks/use-reference-data";
 
 interface Race {
   _id: string;
@@ -17,11 +19,12 @@ export default function AdminResultsPage() {
   const [races, setRaces] = useState<Race[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { resolveKey: resolveRaceType } = useReferenceData("race_type");
 
   useEffect(() => {
     const fetchRaces = async () => {
       try {
-        const res = await fetch("/api/admin/races");
+        const res = await adminFetch("/api/admin/races");
         if (!res.ok) throw new Error("Failed to fetch races");
         const json = await res.json();
         setRaces(json.data || []);
@@ -70,7 +73,7 @@ export default function AdminResultsPage() {
                 <div>
                   <p className="font-medium text-sm">{race.name}</p>
                   <p className="text-xs text-[var(--muted-foreground,#6b7280)]">
-                    {race.date ? new Date(race.date).toLocaleDateString() : "No date"} · {race.location?.name || "Unknown"} · {race.raceType?.replace("_", " ")}
+                    {race.date ? new Date(race.date).toLocaleDateString() : "No date"} · {race.location?.name || "Unknown"} · {resolveRaceType(race.raceType)}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">

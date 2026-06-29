@@ -2,6 +2,8 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { Building2, Plus, Pencil, Trash2, X, Search, UserPlus, UserMinus } from "lucide-react";
+import { adminFetch } from "@/lib/admin-fetch";
+import { useReferenceData } from "@/hooks/use-reference-data";
 
 interface Organization {
   _id: string;
@@ -18,8 +20,6 @@ interface Person {
   email: string;
 }
 
-const ORG_TYPES = ["team", "promoter", "sponsor", "other"];
-
 export default function AdminOrganizationsPage() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
@@ -27,6 +27,9 @@ export default function AdminOrganizationsPage() {
   const [showModal, setShowModal] = useState(false);
   const [editingOrg, setEditingOrg] = useState<Organization | null>(null);
   const [typeFilter, setTypeFilter] = useState("");
+
+  // Reference data for organization types
+  const { activeItems: orgTypes, isLoading: orgTypesLoading, resolveKey: resolveOrgType } = useReferenceData("organization_type");
 
   // Member management
   const [managingMembers, setManagingMembers] = useState<Organization | null>(null);
@@ -44,7 +47,7 @@ export default function AdminOrganizationsPage() {
       setLoading(true);
       const params = new URLSearchParams();
       if (typeFilter) params.set("type", typeFilter);
-      const res = await fetch(`/api/admin/organizations?${params.toString()}`);
+      const res = await adminFetch(`/api/admin/organizations?${params.toString()}`);
       if (!res.ok) throw new Error("Failed to fetch organizations");
       const json = await res.json();
       setOrganizations(json.data || []);
@@ -64,7 +67,7 @@ export default function AdminOrganizationsPage() {
       setLoadingPeople(true);
       const params = new URLSearchParams();
       if (search) params.set("name", search);
-      const res = await fetch(`/api/admin/people?${params.toString()}`);
+      const res = await adminFetch(`/api/admin/people?${params.toString()}`);
       if (!res.ok) return;
       const json = await res.json();
       setPeople(json.data || []);
@@ -77,7 +80,7 @@ export default function AdminOrganizationsPage() {
 
   const openCreateModal = () => {
     setEditingOrg(null);
-    setFormData({ name: "", type: "team", description: "" });
+    setFormData({ name: "", type: orgTypes.length > 0 ? orgTypes[0].key : "", description: "" });
     setFormError(null);
     setShowModal(true);
   };
@@ -112,7 +115,7 @@ export default function AdminOrganizationsPage() {
         : "/api/admin/organizations";
       const method = editingOrg ? "PUT" : "POST";
 
-      const res = await fetch(url, {
+      const res = await adminFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -135,7 +138,7 @@ export default function AdminOrganizationsPage() {
   const handleDelete = async (org: Organization) => {
     if (!confirm(`Delete organization "${org.name}"?`)) return;
     try {
-      const res = await fetch(`/api/admin/organizations/${org._id}`, { method: "DELETE" });
+      const res = await adminFetch(`/api/admin/organizations/${org._id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete organization");
       fetchOrganizations();
     } catch (err) {
@@ -146,7 +149,7 @@ export default function AdminOrganizationsPage() {
   const handleAddMember = async (personId: string) => {
     if (!managingMembers) return;
     try {
-      const res = await fetch(`/api/admin/organizations/${managingMembers._id}/members`, {
+      const res = await adminFetch(`/api/admin/organizations/${managingMembers._id}/members`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ personId }),
@@ -168,7 +171,7 @@ export default function AdminOrganizationsPage() {
   const handleRemoveMember = async (personId: string) => {
     if (!managingMembers) return;
     try {
-      const res = await fetch(`/api/admin/organizations/${managingMembers._id}/members`, {
+      const res = await adminFetch(`/api/admin/organizations/${managingMembers._id}/members`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ personId }),
@@ -209,10 +212,11 @@ export default function AdminOrganizationsPage() {
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
           className="rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+          disabled={orgTypesLoading}
         >
           <option value="">All Types</option>
-          {ORG_TYPES.map((t) => (
-            <option key={t} value={t} className="capitalize">{t}</option>
+          {orgTypes.map((t) => (
+            <option key={t.key} value={t.key}>{t.label}</option>
           ))}
         </select>
       </div>
@@ -250,7 +254,7 @@ export default function AdminOrganizationsPage() {
                 organizations.map((org) => (
                   <tr key={org._id} className="hover:bg-[var(--muted,#f3f4f6)]/50">
                     <td className="px-4 py-3 font-medium">{org.name}</td>
-                    <td className="px-4 py-3 capitalize">{org.type}</td>
+                    <td className="px-4 py-3 capitalize">{resolveOrgType(org.type)}</td>
                     <td className="px-4 py-3">{org.memberIds?.length || 0} members</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-2">
@@ -322,10 +326,15 @@ export default function AdminOrganizationsPage() {
                   value={formData.type}
                   onChange={(e) => setFormData((p) => ({ ...p, type: e.target.value }))}
                   className="w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm"
+                  disabled={orgTypesLoading}
                 >
-                  {ORG_TYPES.map((t) => (
-                    <option key={t} value={t} className="capitalize">{t}</option>
-                  ))}
+                  {orgTypesLoading ? (
+                    <option value="">Loading...</option>
+                  ) : (
+                    orgTypes.map((t) => (
+                      <option key={t.key} value={t.key}>{t.label}</option>
+                    ))
+                  )}
                 </select>
               </div>
 

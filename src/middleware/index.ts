@@ -24,3 +24,7 @@ export type { RateLimitType, RateLimitOptions } from "./rate-limit";
 export { withAuth, withAdmin } from "./auth";
 
 export type { AuthContext, AuthenticatedHandler } from "./auth";
+
+export { withLeagueAuth } from "./league-auth";
+
+export type { LeagueAuthContext, LeagueAuthorizedHandler } from "./league-auth";

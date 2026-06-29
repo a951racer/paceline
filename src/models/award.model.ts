@@ -36,6 +36,7 @@ export const AwardModel: Model<AwardDocument> =
 export interface AssignedAwardDocument extends Document {
   awardId: mongoose.Types.ObjectId;
   recipientId: mongoose.Types.ObjectId;
+  leagueId: mongoose.Types.ObjectId;
   seasonId: mongoose.Types.ObjectId;
   assignedAt: Date;
   source: NominationType;
@@ -50,6 +51,7 @@ const AssignedAwardSchema = new Schema<AssignedAwardDocument>(
       ref: "Person",
       required: true,
     },
+    leagueId: { type: Schema.Types.ObjectId, required: true, ref: "League" },
     seasonId: { type: Schema.Types.ObjectId, ref: "Season", required: true },
     assignedAt: { type: Date, required: true, default: Date.now },
     source: {
@@ -62,6 +64,7 @@ const AssignedAwardSchema = new Schema<AssignedAwardDocument>(
   { timestamps: false }
 );
 
+AssignedAwardSchema.index({ leagueId: 1, seasonId: 1 });
 AssignedAwardSchema.index({ recipientId: 1, seasonId: 1 });
 AssignedAwardSchema.index({ awardId: 1 });
 

@@ -1,6 +1,7 @@
 import { MongoMemoryServer } from "mongodb-memory-server";
 import mongoose from "mongoose";
 import { BrandingService } from "@/services/branding.service";
+import { LeagueModel } from "@/models/league.model";
 import { BrandingConfigurationModel } from "@/models/branding.model";
 
 let mongoServer: MongoMemoryServer;
@@ -20,11 +21,34 @@ afterAll(async () => {
 });
 
 afterEach(async () => {
+  await LeagueModel.deleteMany({});
   await BrandingConfigurationModel.deleteMany({});
   service.clearCache();
 });
 
-const validBrandingData = {
+const defaultBranding = {
+  leagueName: "Mountain Bike League",
+  logos: {
+    square: "https://cdn.example.com/logos/square.png",
+    horizontal: "https://cdn.example.com/logos/horizontal.png",
+    vertical: "https://cdn.example.com/logos/vertical.png",
+  },
+  mainColors: ["#FF5733", "#33FF57", "#3357FF"] as [string, string, string],
+  accentColors: ["#FFD700"],
+};
+
+/** Helper to create a league with branding */
+async function createLeague(overrides?: Partial<typeof defaultBranding>) {
+  const branding = { ...defaultBranding, ...overrides };
+  const league = await LeagueModel.create({
+    name: branding.leagueName,
+    isActive: true,
+    branding,
+  });
+  return league;
+}
+
+const validUpdateData = {
   leagueName: "Mountain Bike League",
   logos: {
     square: "https://cdn.example.com/logos/square.png",
@@ -37,16 +61,17 @@ const validBrandingData = {
 };
 
 describe("BrandingService", () => {
-  describe("get()", () => {
-    it("should return null when no branding config exists", async () => {
-      const result = await service.get();
+  describe("get(leagueId)", () => {
+    it("should return null when league does not exist", async () => {
+      const fakeId = new mongoose.Types.ObjectId().toString();
+      const result = await service.get(fakeId);
       expect(result).toBeNull();
     });
 
-    it("should return the branding config when one exists (Req 19.1)", async () => {
-      await service.update(validBrandingData);
+    it("should return branding from league document (Req 11.1)", async () => {
+      const league = await createLeague();
 
-      const result = await service.get();
+      const result = await service.get(league._id.toString());
 
       expect(result).not.toBeNull();
       expect(result!.leagueName).toBe("Mountain Bike League");
@@ -54,49 +79,66 @@ describe("BrandingService", () => {
       expect(result!.accentColors).toEqual(["#FFD700"]);
     });
 
-    it("should return cached data on subsequent calls (Req 19.5)", async () => {
-      await service.update(validBrandingData);
+    it("should return cached data on subsequent calls", async () => {
+      const league = await createLeague();
 
       // First call populates cache
-      const result1 = await service.get();
+      const result1 = await service.get(league._id.toString());
       // Second call should return cached result
-      const result2 = await service.get();
+      const result2 = await service.get(league._id.toString());
 
       expect(result1!.leagueName).toBe(result2!.leagueName);
       expect(result1!.mainColors).toEqual(result2!.mainColors);
     });
+
+    it("should return different branding for different leagues (Req 11.3)", async () => {
+      const league1 = await createLeague({ leagueName: "League A" });
+      const league2 = await LeagueModel.create({
+        name: "League B",
+        isActive: true,
+        branding: {
+          ...defaultBranding,
+          leagueName: "League B",
+          mainColors: ["#111111", "#222222", "#333333"],
+        },
+      });
+
+      const branding1 = await service.get(league1._id.toString());
+      const branding2 = await service.get(league2._id.toString());
+
+      expect(branding1!.leagueName).toBe("League A");
+      expect(branding2!.leagueName).toBe("League B");
+      expect(branding1!.mainColors).not.toEqual(branding2!.mainColors);
+    });
   });
 
-  describe("update()", () => {
-    it("should create branding config when none exists (upsert)", async () => {
-      const result = await service.update(validBrandingData);
+  describe("update(leagueId, data)", () => {
+    it("should update branding in the league document (Req 11.2)", async () => {
+      const league = await createLeague();
 
-      expect(result.leagueName).toBe("Mountain Bike League");
-      expect(result.logos.square).toBe("https://cdn.example.com/logos/square.png");
-      expect(result.logos.horizontal).toBe("https://cdn.example.com/logos/horizontal.png");
-      expect(result.logos.vertical).toBe("https://cdn.example.com/logos/vertical.png");
-      expect(result.mainColors).toEqual(["#FF5733", "#33FF57", "#3357FF"]);
-      expect(result.accentColors).toEqual(["#FFD700"]);
-    });
-
-    it("should update existing branding config (Req 19.5)", async () => {
-      await service.update(validBrandingData);
-
-      const updated = await service.update({
-        ...validBrandingData,
+      const result = await service.update(league._id.toString(), {
+        ...validUpdateData,
         leagueName: "Updated League Name",
       });
 
-      expect(updated.leagueName).toBe("Updated League Name");
+      expect(result.leagueName).toBe("Updated League Name");
+      expect(result.logos.square).toBe("https://cdn.example.com/logos/square.png");
+      expect(result.mainColors).toEqual(["#FF5733", "#33FF57", "#3357FF"]);
+    });
 
-      // Verify only one document exists (singleton)
-      const count = await BrandingConfigurationModel.countDocuments();
-      expect(count).toBe(1);
+    it("should throw when league is not found", async () => {
+      const fakeId = new mongoose.Types.ObjectId().toString();
+
+      await expect(
+        service.update(fakeId, validUpdateData)
+      ).rejects.toThrow(`League with id "${fakeId}" not found`);
     });
 
     it("should accept 2 accent colors (Req 19.7)", async () => {
-      const result = await service.update({
-        ...validBrandingData,
+      const league = await createLeague();
+
+      const result = await service.update(league._id.toString(), {
+        ...validUpdateData,
         accentColors: ["#FFD700", "#C0C0C0"],
       });
 
@@ -104,81 +146,99 @@ describe("BrandingService", () => {
     });
 
     it("should reject when mainColors count is not 3 (Req 19.6)", async () => {
+      const league = await createLeague();
+
       await expect(
-        service.update({
-          ...validBrandingData,
+        service.update(league._id.toString(), {
+          ...validUpdateData,
           mainColors: ["#FF5733", "#33FF57"] as unknown as [string, string, string],
         })
       ).rejects.toThrow("Exactly 3 main colors are required");
     });
 
     it("should reject when mainColors count is more than 3 (Req 19.6)", async () => {
+      const league = await createLeague();
+
       await expect(
-        service.update({
-          ...validBrandingData,
+        service.update(league._id.toString(), {
+          ...validUpdateData,
           mainColors: ["#FF5733", "#33FF57", "#3357FF", "#AABBCC"] as unknown as [string, string, string],
         })
       ).rejects.toThrow("Exactly 3 main colors are required");
     });
 
     it("should reject when accentColors is empty (Req 19.7)", async () => {
+      const league = await createLeague();
+
       await expect(
-        service.update({
-          ...validBrandingData,
+        service.update(league._id.toString(), {
+          ...validUpdateData,
           accentColors: [],
         })
       ).rejects.toThrow("1 or 2 accent colors are required");
     });
 
     it("should reject when accentColors count is more than 2 (Req 19.7)", async () => {
+      const league = await createLeague();
+
       await expect(
-        service.update({
-          ...validBrandingData,
+        service.update(league._id.toString(), {
+          ...validUpdateData,
           accentColors: ["#FFD700", "#C0C0C0", "#AABBCC"],
         })
       ).rejects.toThrow("1 or 2 accent colors are required");
     });
 
     it("should reject invalid hex color format in mainColors", async () => {
+      const league = await createLeague();
+
       await expect(
-        service.update({
-          ...validBrandingData,
+        service.update(league._id.toString(), {
+          ...validUpdateData,
           mainColors: ["#FF5733", "not-a-color", "#3357FF"] as [string, string, string],
         })
       ).rejects.toThrow('Invalid hex color format "not-a-color"');
     });
 
     it("should reject invalid hex color format in accentColors", async () => {
+      const league = await createLeague();
+
       await expect(
-        service.update({
-          ...validBrandingData,
+        service.update(league._id.toString(), {
+          ...validUpdateData,
           accentColors: ["rgb(255,0,0)"],
         })
       ).rejects.toThrow('Invalid hex color format "rgb(255,0,0)"');
     });
 
     it("should reject empty league name", async () => {
+      const league = await createLeague();
+
       await expect(
-        service.update({
-          ...validBrandingData,
+        service.update(league._id.toString(), {
+          ...validUpdateData,
           leagueName: "",
         })
       ).rejects.toThrow("League name is required");
     });
 
     it("should reject whitespace-only league name", async () => {
+      const league = await createLeague();
+
       await expect(
-        service.update({
-          ...validBrandingData,
+        service.update(league._id.toString(), {
+          ...validUpdateData,
           leagueName: "   ",
         })
       ).rejects.toThrow("League name is required");
     });
 
     it("should reject when square logo is missing (Req 19.9)", async () => {
+      const league = await createLeague();
+
       await expect(
-        service.update({
-          ...validBrandingData,
+        service.update(league._id.toString(), {
+          ...validUpdateData,
           logos: {
             square: "",
             horizontal: "https://cdn.example.com/logos/horizontal.png",
@@ -189,9 +249,11 @@ describe("BrandingService", () => {
     });
 
     it("should reject when horizontal logo is missing (Req 19.9)", async () => {
+      const league = await createLeague();
+
       await expect(
-        service.update({
-          ...validBrandingData,
+        service.update(league._id.toString(), {
+          ...validUpdateData,
           logos: {
             square: "https://cdn.example.com/logos/square.png",
             horizontal: "",
@@ -202,20 +264,45 @@ describe("BrandingService", () => {
     });
 
     it("should invalidate cache after update", async () => {
-      await service.update(validBrandingData);
+      const league = await createLeague();
 
       // Populate cache
-      await service.get();
+      await service.get(league._id.toString());
 
       // Update should invalidate cache
-      await service.update({
-        ...validBrandingData,
+      await service.update(league._id.toString(), {
+        ...validUpdateData,
         leagueName: "New Name",
       });
 
       // Next get() should fetch fresh data
-      const result = await service.get();
+      const result = await service.get(league._id.toString());
       expect(result!.leagueName).toBe("New Name");
+    });
+  });
+
+  describe("getLegacy()", () => {
+    it("should return null when no legacy branding config exists", async () => {
+      const result = await service.getLegacy();
+      expect(result).toBeNull();
+    });
+
+    it("should return the standalone branding document (deprecated)", async () => {
+      await BrandingConfigurationModel.create({
+        leagueName: "Legacy League",
+        logos: {
+          square: "https://cdn.example.com/logos/square.png",
+          horizontal: "https://cdn.example.com/logos/horizontal.png",
+          vertical: "https://cdn.example.com/logos/vertical.png",
+        },
+        mainColors: ["#000000", "#111111", "#222222"],
+        accentColors: ["#333333"],
+        updatedBy: new mongoose.Types.ObjectId(),
+      });
+
+      const result = await service.getLegacy();
+      expect(result).not.toBeNull();
+      expect(result!.leagueName).toBe("Legacy League");
     });
   });
 

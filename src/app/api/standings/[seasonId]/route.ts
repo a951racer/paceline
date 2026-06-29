@@ -24,6 +24,18 @@ const handleGet = async (request: Request): Promise<NextResponse> => {
     const url = new URL(request.url);
     const segments = url.pathname.split("/");
     const seasonId = segments[segments.length - 1];
+    const leagueId = url.searchParams.get("leagueId");
+
+    if (!leagueId) {
+      return NextResponse.json(
+        {
+          status: 400,
+          code: "LEAGUE_REQUIRED",
+          message: "leagueId query parameter is required",
+        },
+        { status: 400 }
+      );
+    }
 
     // Validate that the season exists
     const season = await seasonService.getById(seasonId);
@@ -40,6 +52,7 @@ const handleGet = async (request: Request): Promise<NextResponse> => {
 
     const standings = await StandingModel.find({
       seasonId: season._id,
+      leagueId,
     }).sort({ competitionId: 1, position: 1 });
 
     // Group standings by competitionId

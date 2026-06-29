@@ -8,13 +8,29 @@ import { NextResponse } from "next/server";
 import { withAdmin, type AuthenticatedHandler } from "@/middleware/auth";
 import { withRateLimit } from "@/middleware/rate-limit";
 import { RaceService } from "@/services/race.service";
+import { ReferenceDataService } from "@/services/reference-data.service";
 import { createRaceSchema } from "@/lib/validations";
 
 const raceService = new RaceService();
+const referenceDataService = new ReferenceDataService();
 
-const handleGet: AuthenticatedHandler = async () => {
+const handleGet: AuthenticatedHandler = async (request) => {
   try {
-    const races = await raceService.list();
+    const url = new URL(request.url);
+    const leagueId = url.searchParams.get("leagueId");
+
+    if (!leagueId) {
+      return NextResponse.json(
+        {
+          status: 400,
+          code: "LEAGUE_REQUIRED",
+          message: "leagueId query parameter is required",
+        },
+        { status: 400 }
+      );
+    }
+
+    const races = await raceService.list(leagueId);
 
     return NextResponse.json({ data: races }, { status: 200 });
   } catch (error) {
@@ -32,8 +48,22 @@ const handleGet: AuthenticatedHandler = async () => {
 
 const handlePost: AuthenticatedHandler = async (request) => {
   try {
+    const url = new URL(request.url);
+    const leagueId = url.searchParams.get("leagueId");
+
+    if (!leagueId) {
+      return NextResponse.json(
+        {
+          status: 400,
+          code: "LEAGUE_REQUIRED",
+          message: "leagueId query parameter is required",
+        },
+        { status: 400 }
+      );
+    }
+
     const body = await request.json();
-    const parsed = createRaceSchema.safeParse(body);
+    const parsed = createRaceSchema.safeParse({ ...body, leagueId });
 
     if (!parsed.success) {
       return NextResponse.json(
@@ -45,6 +75,42 @@ const handlePost: AuthenticatedHandler = async (request) => {
         },
         { status: 400 }
       );
+    }
+
+    // Runtime reference data validation for raceType
+    const raceTypeValid = await referenceDataService.validateKeys(
+      leagueId,
+      "race_type",
+      [parsed.data.raceType]
+    );
+    if (!raceTypeValid) {
+      return NextResponse.json(
+        {
+          status: 422,
+          code: "INVALID_REFERENCE_DATA_KEY",
+          message: `Invalid race type: "${parsed.data.raceType}" is not an active reference data key`,
+        },
+        { status: 422 }
+      );
+    }
+
+    // Runtime reference data validation for categories
+    if (parsed.data.categories && parsed.data.categories.length > 0) {
+      const categoriesValid = await referenceDataService.validateKeys(
+        leagueId,
+        "category",
+        parsed.data.categories
+      );
+      if (!categoriesValid) {
+        return NextResponse.json(
+          {
+            status: 422,
+            code: "INVALID_REFERENCE_DATA_KEY",
+            message: `One or more categories are not active reference data keys`,
+          },
+          { status: 422 }
+        );
+      }
     }
 
     const race = await raceService.create(parsed.data);

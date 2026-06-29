@@ -1,17 +1,19 @@
 /**
  * GET /api/admin/people - List people with optional filters
  * POST /api/admin/people - Create a new person
- * @see Requirements 1.1, 1.2
+ * @see Requirements 1.1, 1.2, 9.5, 2.5
  */
 
 import { NextResponse } from "next/server";
 import { withAdmin, type AuthenticatedHandler } from "@/middleware/auth";
 import { withRateLimit } from "@/middleware/rate-limit";
 import { PersonService } from "@/services/person.service";
+import { ReferenceDataService } from "@/services/reference-data.service";
 import { createPersonSchema } from "@/lib/validations";
 import type { Role, Category } from "@/types";
 
 const personService = new PersonService();
+const referenceDataService = new ReferenceDataService();
 
 const handleGet: AuthenticatedHandler = async (request) => {
   try {
@@ -72,6 +74,28 @@ const handlePost: AuthenticatedHandler = async (request) => {
         },
         { status: 400 }
       );
+    }
+
+    // Runtime reference data validation for personTypes
+    const url = new URL(request.url);
+    const leagueId = url.searchParams.get("leagueId");
+
+    if (leagueId && parsed.data.personTypes && parsed.data.personTypes.length > 0) {
+      const personTypesValid = await referenceDataService.validateKeys(
+        leagueId,
+        "person_type",
+        parsed.data.personTypes
+      );
+      if (!personTypesValid) {
+        return NextResponse.json(
+          {
+            status: 422,
+            code: "INVALID_REFERENCE_DATA_KEY",
+            message: `One or more person types are not active reference data keys`,
+          },
+          { status: 422 }
+        );
+      }
     }
 
     const person = await personService.create(parsed.data);

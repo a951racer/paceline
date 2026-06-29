@@ -8,10 +8,12 @@ import { NextResponse } from "next/server";
 import { withAdmin, type AuthenticatedHandler } from "@/middleware/auth";
 import { withRateLimit } from "@/middleware/rate-limit";
 import { OrganizationService } from "@/services/organization.service";
+import { ReferenceDataService } from "@/services/reference-data.service";
 import { createOrganizationSchema } from "@/lib/validations";
 import type { OrganizationType } from "@/types";
 
 const organizationService = new OrganizationService();
+const referenceDataService = new ReferenceDataService();
 
 const handleGet: AuthenticatedHandler = async (request) => {
   try {
@@ -38,6 +40,9 @@ const handleGet: AuthenticatedHandler = async (request) => {
 
 const handlePost: AuthenticatedHandler = async (request) => {
   try {
+    const url = new URL(request.url);
+    const leagueId = url.searchParams.get("leagueId");
+
     const body = await request.json();
     const parsed = createOrganizationSchema.safeParse(body);
 
@@ -51,6 +56,25 @@ const handlePost: AuthenticatedHandler = async (request) => {
         },
         { status: 400 }
       );
+    }
+
+    // Runtime reference data validation for organization type
+    if (leagueId && parsed.data.type) {
+      const typeValid = await referenceDataService.validateKeys(
+        leagueId,
+        "organization_type",
+        [parsed.data.type]
+      );
+      if (!typeValid) {
+        return NextResponse.json(
+          {
+            status: 422,
+            code: "INVALID_REFERENCE_DATA_KEY",
+            message: `Invalid organization type: "${parsed.data.type}" is not an active reference data key`,
+          },
+          { status: 422 }
+        );
+      }
     }
 
     const organization = await organizationService.create(parsed.data);

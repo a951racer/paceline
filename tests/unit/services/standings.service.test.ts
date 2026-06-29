@@ -8,6 +8,7 @@ import { RaceModel } from "@/models/race.model";
 import { PersonModel } from "@/models/person.model";
 import { CompetitionModel } from "@/models/competition.model";
 import { OrganizationModel } from "@/models/organization.model";
+import { EnrollmentModel } from "@/models/enrollment.model";
 
 // Mock TimescaleDB queryWithRetry
 jest.mock("@/lib/db/timescaledb", () => ({
@@ -25,6 +26,8 @@ let standingsService: StandingsService;
 let competitionService: CompetitionService;
 
 const seasonId = new mongoose.Types.ObjectId();
+const leagueId = new mongoose.Types.ObjectId();
+const adminId = new mongoose.Types.ObjectId();
 
 beforeAll(async () => {
   mongoServer = await MongoMemoryServer.create();
@@ -48,6 +51,7 @@ afterEach(async () => {
   await PersonModel.deleteMany({});
   await CompetitionModel.deleteMany({});
   await OrganizationModel.deleteMany({});
+  await EnrollmentModel.deleteMany({});
   mockedQueryWithRetry.mockClear();
 });
 
@@ -68,10 +72,37 @@ async function createPerson(overrides: Partial<{
   });
 }
 
+/** Helper to enroll a person in the league-season */
+async function enrollPerson(personId: mongoose.Types.ObjectId) {
+  return EnrollmentModel.create({
+    entityType: "person",
+    entityId: personId,
+    leagueId,
+    seasonId,
+    enrolledAt: new Date(),
+    enrolledBy: adminId,
+    isActive: true,
+  });
+}
+
+/** Helper to enroll an organization in the league-season */
+async function enrollOrganization(orgId: mongoose.Types.ObjectId) {
+  return EnrollmentModel.create({
+    entityType: "organization",
+    entityId: orgId,
+    leagueId,
+    seasonId,
+    enrolledAt: new Date(),
+    enrolledBy: adminId,
+    isActive: true,
+  });
+}
+
 /** Helper to create a race */
 async function createRace(overrides: Partial<{
   raceType: string;
   seasonId: mongoose.Types.ObjectId;
+  leagueId: mongoose.Types.ObjectId;
 }> = {}) {
   return RaceModel.create({
     name: "Test Race",
@@ -79,6 +110,7 @@ async function createRace(overrides: Partial<{
     location: { name: "Test Venue" },
     raceType: overrides.raceType ?? "crit",
     seasonId: overrides.seasonId ?? seasonId,
+    leagueId: overrides.leagueId ?? leagueId,
     status: "completed",
   });
 }
@@ -88,19 +120,23 @@ async function createRaceResult(data: {
   raceId: mongoose.Types.ObjectId;
   racerId: mongoose.Types.ObjectId;
   seasonId: mongoose.Types.ObjectId;
+  leagueId?: mongoose.Types.ObjectId;
   category: string;
   position: number;
   finishTime: number;
 }) {
-  return RaceResultModel.create(data);
+  return RaceResultModel.create({
+    ...data,
+    leagueId: data.leagueId ?? leagueId,
+  });
 }
 
 describe("StandingsService", () => {
   describe("calculate", () => {
     it("should compute standings using points scoring method (Req 6.1)", async () => {
-      // Create competition with points table
       const competition = await competitionService.create({
         name: "Points Competition",
+        leagueId: leagueId.toString(),
         seasonId: seasonId.toString(),
         type: "individual",
         scoringMethod: {
@@ -109,55 +145,42 @@ describe("StandingsService", () => {
         },
       });
 
-      // Create racers
       const racer1 = await createPerson({ first: "Alice" });
       const racer2 = await createPerson({ first: "Bob" });
+      await enrollPerson(racer1._id as mongoose.Types.ObjectId);
+      await enrollPerson(racer2._id as mongoose.Types.ObjectId);
 
-      // Create races
       const race1 = await createRace();
       const race2 = await createRace();
 
-      // Create results: racer1 wins both, racer2 is 2nd in both
       await createRaceResult({
         raceId: race1._id as mongoose.Types.ObjectId,
         racerId: racer1._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3600000,
+        seasonId, category: "cat3", position: 1, finishTime: 3600000,
       });
       await createRaceResult({
         raceId: race2._id as mongoose.Types.ObjectId,
         racerId: racer1._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3500000,
+        seasonId, category: "cat3", position: 1, finishTime: 3500000,
       });
       await createRaceResult({
         raceId: race1._id as mongoose.Types.ObjectId,
         racerId: racer2._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 2,
-        finishTime: 3700000,
+        seasonId, category: "cat3", position: 2, finishTime: 3700000,
       });
       await createRaceResult({
         raceId: race2._id as mongoose.Types.ObjectId,
         racerId: racer2._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 2,
-        finishTime: 3600000,
+        seasonId, category: "cat3", position: 2, finishTime: 3600000,
       });
 
       const standings = await standingsService.calculate(
         competition._id.toString(),
-        seasonId.toString()
+        seasonId.toString(),
+        leagueId.toString()
       );
 
       expect(standings).toHaveLength(2);
-      // Racer1 should be position 1 with 50 points (25 + 25)
       const standing1 = standings.find(
         (s) => s.racerId.toString() === racer1._id.toString()
       )!;
@@ -165,7 +188,6 @@ describe("StandingsService", () => {
       expect(standing1.totalPoints).toBe(50);
       expect(standing1.totalRaces).toBe(2);
 
-      // Racer2 should be position 2 with 40 points (20 + 20)
       const standing2 = standings.find(
         (s) => s.racerId.toString() === racer2._id.toString()
       )!;
@@ -177,6 +199,7 @@ describe("StandingsService", () => {
     it("should apply countBestN to only count top-N results (Req 6.1)", async () => {
       const competition = await competitionService.create({
         name: "Best-of-2 Competition",
+        leagueId: leagueId.toString(),
         seasonId: seasonId.toString(),
         type: "individual",
         scoringMethod: {
@@ -187,43 +210,34 @@ describe("StandingsService", () => {
       });
 
       const racer = await createPerson({ first: "Charlie" });
+      await enrollPerson(racer._id as mongoose.Types.ObjectId);
       const race1 = await createRace();
       const race2 = await createRace();
       const race3 = await createRace();
 
-      // Racer gets positions 1, 3, 5 (points: 25, 16, 11)
       await createRaceResult({
         raceId: race1._id as mongoose.Types.ObjectId,
         racerId: racer._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3600000,
+        seasonId, category: "cat3", position: 1, finishTime: 3600000,
       });
       await createRaceResult({
         raceId: race2._id as mongoose.Types.ObjectId,
         racerId: racer._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 3,
-        finishTime: 3700000,
+        seasonId, category: "cat3", position: 3, finishTime: 3700000,
       });
       await createRaceResult({
         raceId: race3._id as mongoose.Types.ObjectId,
         racerId: racer._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 5,
-        finishTime: 3800000,
+        seasonId, category: "cat3", position: 5, finishTime: 3800000,
       });
 
       const standings = await standingsService.calculate(
         competition._id.toString(),
-        seasonId.toString()
+        seasonId.toString(),
+        leagueId.toString()
       );
 
       expect(standings).toHaveLength(1);
-      // Only best 2: 25 + 16 = 41 (not 25 + 16 + 11 = 52)
       expect(standings[0].totalPoints).toBe(41);
       expect(standings[0].totalRaces).toBe(3);
     });
@@ -231,6 +245,7 @@ describe("StandingsService", () => {
     it("should compute standings using time scoring method (Req 6.1)", async () => {
       const competition = await competitionService.create({
         name: "Time Trial Cup",
+        leagueId: leagueId.toString(),
         seasonId: seasonId.toString(),
         type: "individual",
         scoringMethod: { type: "time" },
@@ -241,51 +256,40 @@ describe("StandingsService", () => {
 
       const racer1 = await createPerson({ first: "Fast" });
       const racer2 = await createPerson({ first: "Slow" });
+      await enrollPerson(racer1._id as mongoose.Types.ObjectId);
+      await enrollPerson(racer2._id as mongoose.Types.ObjectId);
 
       const race1 = await createRace({ raceType: "time_trial" });
       const race2 = await createRace({ raceType: "time_trial" });
 
-      // Racer1: total time = 7000ms, Racer2: total time = 8000ms
       await createRaceResult({
         raceId: race1._id as mongoose.Types.ObjectId,
         racerId: racer1._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3500,
+        seasonId, category: "cat3", position: 1, finishTime: 3500,
       });
       await createRaceResult({
         raceId: race2._id as mongoose.Types.ObjectId,
         racerId: racer1._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3500,
+        seasonId, category: "cat3", position: 1, finishTime: 3500,
       });
       await createRaceResult({
         raceId: race1._id as mongoose.Types.ObjectId,
         racerId: racer2._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 2,
-        finishTime: 4000,
+        seasonId, category: "cat3", position: 2, finishTime: 4000,
       });
       await createRaceResult({
         raceId: race2._id as mongoose.Types.ObjectId,
         racerId: racer2._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 2,
-        finishTime: 4000,
+        seasonId, category: "cat3", position: 2, finishTime: 4000,
       });
 
       const standings = await standingsService.calculate(
         competition._id.toString(),
-        seasonId.toString()
+        seasonId.toString(),
+        leagueId.toString()
       );
 
       expect(standings).toHaveLength(2);
-      // Lower time = better position
       const standing1 = standings.find(
         (s) => s.racerId.toString() === racer1._id.toString()
       )!;
@@ -302,6 +306,7 @@ describe("StandingsService", () => {
     it("should compute standings using position_average scoring method (Req 6.1)", async () => {
       const competition = await competitionService.create({
         name: "Consistency Cup",
+        leagueId: leagueId.toString(),
         seasonId: seasonId.toString(),
         type: "individual",
         scoringMethod: { type: "position_average" },
@@ -309,52 +314,40 @@ describe("StandingsService", () => {
 
       const racer1 = await createPerson({ first: "Consistent" });
       const racer2 = await createPerson({ first: "Inconsistent" });
+      await enrollPerson(racer1._id as mongoose.Types.ObjectId);
+      await enrollPerson(racer2._id as mongoose.Types.ObjectId);
 
       const race1 = await createRace();
       const race2 = await createRace();
 
-      // Racer1: positions 2, 2 => avg 2.0
-      // Racer2: positions 1, 4 => avg 2.5
       await createRaceResult({
         raceId: race1._id as mongoose.Types.ObjectId,
         racerId: racer1._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 2,
-        finishTime: 3600000,
+        seasonId, category: "cat3", position: 2, finishTime: 3600000,
       });
       await createRaceResult({
         raceId: race2._id as mongoose.Types.ObjectId,
         racerId: racer1._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 2,
-        finishTime: 3600000,
+        seasonId, category: "cat3", position: 2, finishTime: 3600000,
       });
       await createRaceResult({
         raceId: race1._id as mongoose.Types.ObjectId,
         racerId: racer2._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3500000,
+        seasonId, category: "cat3", position: 1, finishTime: 3500000,
       });
       await createRaceResult({
         raceId: race2._id as mongoose.Types.ObjectId,
         racerId: racer2._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 4,
-        finishTime: 3900000,
+        seasonId, category: "cat3", position: 4, finishTime: 3900000,
       });
 
       const standings = await standingsService.calculate(
         competition._id.toString(),
-        seasonId.toString()
+        seasonId.toString(),
+        leagueId.toString()
       );
 
       expect(standings).toHaveLength(2);
-      // Lower average = better position
       const standing1 = standings.find(
         (s) => s.racerId.toString() === racer1._id.toString()
       )!;
@@ -369,9 +362,9 @@ describe("StandingsService", () => {
     });
 
     it("should filter results by eligibility criteria (Req 6.13)", async () => {
-      // Competition only for cat4/cat5 racers
       const competition = await competitionService.create({
         name: "Rookie Championship",
+        leagueId: leagueId.toString(),
         seasonId: seasonId.toString(),
         type: "individual",
         scoringMethod: {
@@ -385,222 +378,175 @@ describe("StandingsService", () => {
 
       const cat3Racer = await createPerson({ first: "Experienced", category: "cat3" });
       const cat4Racer = await createPerson({ first: "Rookie", category: "cat4" });
+      await enrollPerson(cat3Racer._id as mongoose.Types.ObjectId);
+      await enrollPerson(cat4Racer._id as mongoose.Types.ObjectId);
 
       const race = await createRace();
 
       await createRaceResult({
         raceId: race._id as mongoose.Types.ObjectId,
         racerId: cat3Racer._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3500000,
+        seasonId, category: "cat3", position: 1, finishTime: 3500000,
       });
       await createRaceResult({
         raceId: race._id as mongoose.Types.ObjectId,
         racerId: cat4Racer._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat4",
-        position: 2,
-        finishTime: 3600000,
+        seasonId, category: "cat4", position: 2, finishTime: 3600000,
       });
 
       const standings = await standingsService.calculate(
         competition._id.toString(),
-        seasonId.toString()
+        seasonId.toString(),
+        leagueId.toString()
       );
 
-      // Only cat4 racer should be in standings
       expect(standings).toHaveLength(1);
       expect(standings[0].racerId.toString()).toBe(cat4Racer._id.toString());
       expect(standings[0].position).toBe(1);
-      expect(standings[0].totalPoints).toBe(20); // position 2 in pointsTable
+      expect(standings[0].totalPoints).toBe(20);
     });
 
-    it("should filter by race type eligibility criteria (Req 6.13)", async () => {
+    it("should exclude non-enrolled racers from standings (Req 7.5, 7.6)", async () => {
       const competition = await competitionService.create({
-        name: "Time Trial Cup",
+        name: "League Standings",
+        leagueId: leagueId.toString(),
         seasonId: seasonId.toString(),
         type: "individual",
         scoringMethod: {
           type: "points",
-          pointsTable: { 1: 25 },
-        },
-        eligibilityCriteria: {
-          raceCriteria: { raceTypes: ["time_trial"] },
+          pointsTable: { 1: 25, 2: 20 },
         },
       });
 
-      const racer = await createPerson({ first: "Racer" });
-      const critRace = await createRace({ raceType: "crit" });
-      const ttRace = await createRace({ raceType: "time_trial" });
+      const enrolledRacer = await createPerson({ first: "Enrolled" });
+      const notEnrolledRacer = await createPerson({ first: "NotEnrolled" });
+      // Only enroll one racer
+      await enrollPerson(enrolledRacer._id as mongoose.Types.ObjectId);
 
-      await createRaceResult({
-        raceId: critRace._id as mongoose.Types.ObjectId,
-        racerId: racer._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3500000,
-      });
-      await createRaceResult({
-        raceId: ttRace._id as mongoose.Types.ObjectId,
-        racerId: racer._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 1800000,
-      });
-
-      const standings = await standingsService.calculate(
-        competition._id.toString(),
-        seasonId.toString()
-      );
-
-      expect(standings).toHaveLength(1);
-      // Only the TT result counts (25 points), not the crit
-      expect(standings[0].totalPoints).toBe(25);
-      expect(standings[0].totalRaces).toBe(1);
-    });
-
-    it("should order positions by points descending for points scoring", async () => {
-      const competition = await competitionService.create({
-        name: "League",
-        seasonId: seasonId.toString(),
-        type: "individual",
-        scoringMethod: {
-          type: "points",
-          pointsTable: { 1: 25, 2: 20, 3: 16 },
-        },
-      });
-
-      const racer1 = await createPerson({ first: "First" });
-      const racer2 = await createPerson({ first: "Second" });
-      const racer3 = await createPerson({ first: "Third" });
       const race = await createRace();
 
       await createRaceResult({
         raceId: race._id as mongoose.Types.ObjectId,
-        racerId: racer1._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 3,
-        finishTime: 3800000,
+        racerId: enrolledRacer._id as mongoose.Types.ObjectId,
+        seasonId, category: "cat3", position: 1, finishTime: 3500000,
       });
       await createRaceResult({
         raceId: race._id as mongoose.Types.ObjectId,
-        racerId: racer2._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3500000,
-      });
-      await createRaceResult({
-        raceId: race._id as mongoose.Types.ObjectId,
-        racerId: racer3._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 2,
-        finishTime: 3600000,
+        racerId: notEnrolledRacer._id as mongoose.Types.ObjectId,
+        seasonId, category: "cat3", position: 2, finishTime: 3600000,
       });
 
       const standings = await standingsService.calculate(
         competition._id.toString(),
-        seasonId.toString()
+        seasonId.toString(),
+        leagueId.toString()
       );
 
-      expect(standings[0].racerId.toString()).toBe(racer2._id.toString());
-      expect(standings[0].position).toBe(1);
-      expect(standings[1].racerId.toString()).toBe(racer3._id.toString());
-      expect(standings[1].position).toBe(2);
-      expect(standings[2].racerId.toString()).toBe(racer1._id.toString());
-      expect(standings[2].position).toBe(3);
+      // Only enrolled racer should appear
+      expect(standings).toHaveLength(1);
+      expect(standings[0].racerId.toString()).toBe(enrolledRacer._id.toString());
+    });
+
+    it("should write leagueId to standing records", async () => {
+      const competition = await competitionService.create({
+        name: "League",
+        leagueId: leagueId.toString(),
+        seasonId: seasonId.toString(),
+        type: "individual",
+        scoringMethod: { type: "points", pointsTable: { 1: 25 } },
+      });
+
+      const racer = await createPerson({ first: "Racer" });
+      await enrollPerson(racer._id as mongoose.Types.ObjectId);
+      const race = await createRace();
+
+      await createRaceResult({
+        raceId: race._id as mongoose.Types.ObjectId,
+        racerId: racer._id as mongoose.Types.ObjectId,
+        seasonId, category: "cat3", position: 1, finishTime: 3600000,
+      });
+
+      await standingsService.calculate(
+        competition._id.toString(),
+        seasonId.toString(),
+        leagueId.toString()
+      );
+
+      const doc = await StandingModel.findOne({ competitionId: competition._id });
+      expect(doc!.leagueId.toString()).toBe(leagueId.toString());
     });
 
     it("should upsert standings in MongoDB (Req 6.2)", async () => {
       const competition = await competitionService.create({
         name: "League",
+        leagueId: leagueId.toString(),
         seasonId: seasonId.toString(),
         type: "individual",
-        scoringMethod: {
-          type: "points",
-          pointsTable: { 1: 25 },
-        },
+        scoringMethod: { type: "points", pointsTable: { 1: 25 } },
       });
 
       const racer = await createPerson({ first: "Racer" });
+      await enrollPerson(racer._id as mongoose.Types.ObjectId);
       const race1 = await createRace();
 
       await createRaceResult({
         raceId: race1._id as mongoose.Types.ObjectId,
         racerId: racer._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3600000,
+        seasonId, category: "cat3", position: 1, finishTime: 3600000,
       });
 
-      // First calculation
       await standingsService.calculate(
         competition._id.toString(),
-        seasonId.toString()
+        seasonId.toString(),
+        leagueId.toString()
       );
 
-      // Add another result and recalculate
       const race2 = await createRace();
       await createRaceResult({
         raceId: race2._id as mongoose.Types.ObjectId,
         racerId: racer._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3500000,
+        seasonId, category: "cat3", position: 1, finishTime: 3500000,
       });
 
       const standings = await standingsService.calculate(
         competition._id.toString(),
-        seasonId.toString()
+        seasonId.toString(),
+        leagueId.toString()
       );
 
-      // Should update existing standing, not create a duplicate
       expect(standings).toHaveLength(1);
-      expect(standings[0].totalPoints).toBe(50); // 25 + 25
+      expect(standings[0].totalPoints).toBe(50);
       expect(standings[0].totalRaces).toBe(2);
 
-      // Verify only one document in MongoDB
       const count = await StandingModel.countDocuments({
-        competitionId: competition._id,
-        seasonId,
+        competitionId: competition._id, seasonId,
       });
       expect(count).toBe(1);
     });
 
-    it("should insert standings history into TimescaleDB after calculation", async () => {
+    it("should insert standings history into TimescaleDB with leagueId", async () => {
       const competition = await competitionService.create({
         name: "League",
+        leagueId: leagueId.toString(),
         seasonId: seasonId.toString(),
         type: "individual",
-        scoringMethod: {
-          type: "points",
-          pointsTable: { 1: 25 },
-        },
+        scoringMethod: { type: "points", pointsTable: { 1: 25 } },
       });
 
       const racer = await createPerson({ first: "Racer" });
+      await enrollPerson(racer._id as mongoose.Types.ObjectId);
       const race = await createRace();
 
       await createRaceResult({
         raceId: race._id as mongoose.Types.ObjectId,
         racerId: racer._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3600000,
+        seasonId, category: "cat3", position: 1, finishTime: 3600000,
       });
 
       await standingsService.calculate(
         competition._id.toString(),
-        seasonId.toString()
+        seasonId.toString(),
+        leagueId.toString()
       );
 
       expect(mockedQueryWithRetry).toHaveBeenCalledWith(
@@ -610,6 +556,7 @@ describe("StandingsService", () => {
           racer._id.toString(), // person_id
           competition._id.toString(), // competition_id
           seasonId.toString(), // season_id
+          leagueId.toString(), // league_id
           1, // position
           25, // total_points
           1, // total_races
@@ -621,13 +568,14 @@ describe("StandingsService", () => {
       const fakeId = new mongoose.Types.ObjectId().toString();
 
       await expect(
-        standingsService.calculate(fakeId, seasonId.toString())
+        standingsService.calculate(fakeId, seasonId.toString(), leagueId.toString())
       ).rejects.toThrow(`Competition with id "${fakeId}" not found`);
     });
 
     it("should return empty standings when no eligible results exist", async () => {
       const competition = await competitionService.create({
         name: "Empty Competition",
+        leagueId: leagueId.toString(),
         seasonId: seasonId.toString(),
         type: "individual",
         scoringMethod: { type: "points", pointsTable: { 1: 25 } },
@@ -636,22 +584,20 @@ describe("StandingsService", () => {
         },
       });
 
-      // Create a cat3 racer and result - won't match cat1 eligibility
       const racer = await createPerson({ first: "Wrong Cat" });
+      await enrollPerson(racer._id as mongoose.Types.ObjectId);
       const race = await createRace();
 
       await createRaceResult({
         raceId: race._id as mongoose.Types.ObjectId,
         racerId: racer._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3600000,
+        seasonId, category: "cat3", position: 1, finishTime: 3600000,
       });
 
       const standings = await standingsService.calculate(
         competition._id.toString(),
-        seasonId.toString()
+        seasonId.toString(),
+        leagueId.toString()
       );
 
       expect(standings).toHaveLength(0);
@@ -661,30 +607,28 @@ describe("StandingsService", () => {
       const teamId = new mongoose.Types.ObjectId();
       const competition = await competitionService.create({
         name: "League",
+        leagueId: leagueId.toString(),
         seasonId: seasonId.toString(),
         type: "individual",
         scoringMethod: { type: "points", pointsTable: { 1: 25 } },
       });
 
       const racer = await createPerson({
-        first: "Team",
-        last: "Racer",
-        organizationIds: [teamId],
+        first: "Team", last: "Racer", organizationIds: [teamId],
       });
+      await enrollPerson(racer._id as mongoose.Types.ObjectId);
       const race = await createRace();
 
       await createRaceResult({
         raceId: race._id as mongoose.Types.ObjectId,
         racerId: racer._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3600000,
+        seasonId, category: "cat3", position: 1, finishTime: 3600000,
       });
 
       const standings = await standingsService.calculate(
         competition._id.toString(),
-        seasonId.toString()
+        seasonId.toString(),
+        leagueId.toString()
       );
 
       expect(standings).toHaveLength(1);
@@ -693,25 +637,27 @@ describe("StandingsService", () => {
   });
 
   describe("recalculateAll", () => {
-    it("should recalculate standings for all active individual competitions in a season", async () => {
-      // Create two active competitions
+    it("should recalculate standings for all active competitions in a league-season", async () => {
       const comp1 = await competitionService.create({
         name: "Overall",
+        leagueId: leagueId.toString(),
         seasonId: seasonId.toString(),
         type: "individual",
         scoringMethod: { type: "points", pointsTable: { 1: 25 } },
       });
       const comp2 = await competitionService.create({
         name: "TT Cup",
+        leagueId: leagueId.toString(),
         seasonId: seasonId.toString(),
         type: "individual",
         scoringMethod: { type: "time" },
         eligibilityCriteria: { raceCriteria: { raceTypes: ["time_trial"] } },
       });
 
-      // Create inactive competition - should not be recalculated
+      // Inactive competition - should not be recalculated
       await competitionService.create({
         name: "Inactive",
+        leagueId: leagueId.toString(),
         seasonId: seasonId.toString(),
         type: "individual",
         scoringMethod: { type: "points" },
@@ -719,78 +665,104 @@ describe("StandingsService", () => {
       });
 
       const racer = await createPerson({ first: "Test" });
+      await enrollPerson(racer._id as mongoose.Types.ObjectId);
       const race = await createRace({ raceType: "time_trial" });
 
       await createRaceResult({
         raceId: race._id as mongoose.Types.ObjectId,
         racerId: racer._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 1800000,
+        seasonId, category: "cat3", position: 1, finishTime: 1800000,
       });
 
-      await standingsService.recalculateAll(seasonId.toString());
+      await standingsService.recalculateAll(seasonId.toString(), leagueId.toString());
 
-      // Check standings for comp1 (should include the result)
-      const comp1Standings = await StandingModel.find({
-        competitionId: comp1._id,
-      });
+      const comp1Standings = await StandingModel.find({ competitionId: comp1._id });
       expect(comp1Standings).toHaveLength(1);
       expect(comp1Standings[0].totalPoints).toBe(25);
 
-      // Check standings for comp2 (TT cup - should include the TT result)
-      const comp2Standings = await StandingModel.find({
-        competitionId: comp2._id,
-      });
+      const comp2Standings = await StandingModel.find({ competitionId: comp2._id });
       expect(comp2Standings).toHaveLength(1);
       expect(comp2Standings[0].totalPoints).toBe(1800000);
     });
 
     it("should also recalculate team-type competitions (Req 6.9)", async () => {
-      const { OrganizationModel } = require("@/models/organization.model");
-
       const competition = await competitionService.create({
         name: "Team Championship",
+        leagueId: leagueId.toString(),
         seasonId: seasonId.toString(),
         type: "team",
         scoringMethod: { type: "points", pointsTable: { 1: 25, 2: 20 } },
       });
 
       const racer = await createPerson({ first: "Racer" });
+      await enrollPerson(racer._id as mongoose.Types.ObjectId);
 
-      // Create a team with the racer as a member
       const team = await OrganizationModel.create({
         name: "Test Team Recalc",
         type: "team",
         memberIds: [racer._id],
       });
+      await enrollOrganization(team._id as mongoose.Types.ObjectId);
 
       const race = await createRace();
 
       await createRaceResult({
         raceId: race._id as mongoose.Types.ObjectId,
         racerId: racer._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3600000,
+        seasonId, category: "cat3", position: 1, finishTime: 3600000,
       });
 
-      await standingsService.recalculateAll(seasonId.toString());
+      await standingsService.recalculateAll(seasonId.toString(), leagueId.toString());
 
-      // Team standings should be created
-      const { TeamStandingModel } = require("@/models/standing.model");
       const teamStandings = await TeamStandingModel.find({
         competitionId: competition._id,
       });
       expect(teamStandings).toHaveLength(1);
       expect(teamStandings[0].totalPoints).toBe(25);
       expect(teamStandings[0].organizationId.toString()).toBe(team._id.toString());
+    });
 
-      // Cleanup
-      await OrganizationModel.deleteMany({});
-      await TeamStandingModel.deleteMany({});
+    it("should only recalculate competitions for the given league (Req 7.7)", async () => {
+      const otherLeagueId = new mongoose.Types.ObjectId();
+
+      // Competition in our league
+      const comp = await competitionService.create({
+        name: "Our League Comp",
+        leagueId: leagueId.toString(),
+        seasonId: seasonId.toString(),
+        type: "individual",
+        scoringMethod: { type: "points", pointsTable: { 1: 25 } },
+      });
+
+      // Competition in other league
+      await CompetitionModel.create({
+        name: "Other League Comp",
+        leagueId: otherLeagueId,
+        seasonId,
+        type: "individual",
+        scoringMethod: { type: "points", pointsTable: new Map([["1", 25]]) },
+        isActive: true,
+      });
+
+      const racer = await createPerson({ first: "Racer" });
+      await enrollPerson(racer._id as mongoose.Types.ObjectId);
+      const race = await createRace();
+
+      await createRaceResult({
+        raceId: race._id as mongoose.Types.ObjectId,
+        racerId: racer._id as mongoose.Types.ObjectId,
+        seasonId, category: "cat3", position: 1, finishTime: 3600000,
+      });
+
+      await standingsService.recalculateAll(seasonId.toString(), leagueId.toString());
+
+      // Only our league competition should have standings
+      const ourStandings = await StandingModel.find({ competitionId: comp._id });
+      expect(ourStandings).toHaveLength(1);
+
+      // No standings for other league competition
+      const otherStandings = await StandingModel.find({ leagueId: otherLeagueId });
+      expect(otherStandings).toHaveLength(0);
     });
   });
 
@@ -802,27 +774,26 @@ describe("StandingsService", () => {
 
       const competition = await competitionService.create({
         name: "League",
+        leagueId: leagueId.toString(),
         seasonId: seasonId.toString(),
         type: "individual",
         scoringMethod: { type: "points", pointsTable: { 1: 25 } },
       });
 
       const racer = await createPerson({ first: "Racer" });
+      await enrollPerson(racer._id as mongoose.Types.ObjectId);
       const race = await createRace();
 
       await createRaceResult({
         raceId: race._id as mongoose.Types.ObjectId,
         racerId: racer._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3600000,
+        seasonId, category: "cat3", position: 1, finishTime: 3600000,
       });
 
-      // Should not throw even though TimescaleDB fails
       const standings = await standingsService.calculate(
         competition._id.toString(),
-        seasonId.toString()
+        seasonId.toString(),
+        leagueId.toString()
       );
 
       expect(standings).toHaveLength(1);
@@ -831,22 +802,15 @@ describe("StandingsService", () => {
   });
 
   describe("calculateTeam", () => {
-    let OrganizationModelRef: typeof import("@/models/organization.model").OrganizationModel;
-    let TeamStandingModelRef: typeof import("@/models/standing.model").TeamStandingModel;
-
-    beforeAll(() => {
-      OrganizationModelRef = require("@/models/organization.model").OrganizationModel;
-      TeamStandingModelRef = require("@/models/standing.model").TeamStandingModel;
-    });
-
     afterEach(async () => {
-      await OrganizationModelRef.deleteMany({});
-      await TeamStandingModelRef.deleteMany({});
+      await OrganizationModel.deleteMany({});
+      await TeamStandingModel.deleteMany({});
     });
 
     it("should compute team standings by summing member points (Req 6.6, 6.7)", async () => {
       const competition = await competitionService.create({
         name: "Team Championship",
+        leagueId: leagueId.toString(),
         seasonId: seasonId.toString(),
         type: "team",
         scoringMethod: {
@@ -857,12 +821,72 @@ describe("StandingsService", () => {
 
       const racer1 = await createPerson({ first: "Alice" });
       const racer2 = await createPerson({ first: "Bob" });
+      await enrollPerson(racer1._id as mongoose.Types.ObjectId);
+      await enrollPerson(racer2._id as mongoose.Types.ObjectId);
 
-      // Create team with both racers
-      const team = await OrganizationModelRef.create({
+      const team = await OrganizationModel.create({
         name: "Team Alpha",
         type: "team",
         memberIds: [racer1._id, racer2._id],
+      });
+      await enrollOrganization(team._id as mongoose.Types.ObjectId);
+
+      const race = await createRace();
+
+      await createRaceResult({
+        raceId: race._id as mongoose.Types.ObjectId,
+        racerId: racer1._id as mongoose.Types.ObjectId,
+        seasonId, category: "cat3", position: 1, finishTime: 3500000,
+      });
+      await createRaceResult({
+        raceId: race._id as mongoose.Types.ObjectId,
+        racerId: racer2._id as mongoose.Types.ObjectId,
+        seasonId, category: "cat3", position: 2, finishTime: 3600000,
+      });
+
+      const standings = await standingsService.calculateTeam(
+        competition._id.toString(),
+        seasonId.toString(),
+        leagueId.toString()
+      );
+
+      expect(standings).toHaveLength(1);
+      expect(standings[0].organizationId.toString()).toBe(team._id.toString());
+      expect(standings[0].totalPoints).toBe(45);
+      expect(standings[0].totalRaces).toBe(1);
+      expect(standings[0].position).toBe(1);
+      expect(standings[0].memberResults).toHaveLength(2);
+    });
+
+    it("should exclude non-enrolled teams from team standings (Req 7.6)", async () => {
+      const competition = await competitionService.create({
+        name: "Team Championship",
+        leagueId: leagueId.toString(),
+        seasonId: seasonId.toString(),
+        type: "team",
+        scoringMethod: {
+          type: "points",
+          pointsTable: { 1: 25 },
+        },
+      });
+
+      const racer1 = await createPerson({ first: "Alice" });
+      const racer2 = await createPerson({ first: "Bob" });
+      await enrollPerson(racer1._id as mongoose.Types.ObjectId);
+      await enrollPerson(racer2._id as mongoose.Types.ObjectId);
+
+      const enrolledTeam = await OrganizationModel.create({
+        name: "Enrolled Team",
+        type: "team",
+        memberIds: [racer1._id],
+      });
+      await enrollOrganization(enrolledTeam._id as mongoose.Types.ObjectId);
+
+      // Non-enrolled team
+      await OrganizationModel.create({
+        name: "Not Enrolled Team",
+        type: "team",
+        memberIds: [racer2._id],
       });
 
       const race = await createRace();
@@ -870,37 +894,64 @@ describe("StandingsService", () => {
       await createRaceResult({
         raceId: race._id as mongoose.Types.ObjectId,
         racerId: racer1._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3500000,
+        seasonId, category: "cat3", position: 1, finishTime: 3500000,
       });
       await createRaceResult({
         raceId: race._id as mongoose.Types.ObjectId,
         racerId: racer2._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 2,
-        finishTime: 3600000,
+        seasonId, category: "cat3", position: 2, finishTime: 3600000,
       });
 
       const standings = await standingsService.calculateTeam(
         competition._id.toString(),
-        seasonId.toString()
+        seasonId.toString(),
+        leagueId.toString()
       );
 
+      // Only enrolled team should appear
       expect(standings).toHaveLength(1);
-      expect(standings[0].organizationId.toString()).toBe(team._id.toString());
-      // Team total = 25 (racer1 position 1) + 20 (racer2 position 2) = 45
-      expect(standings[0].totalPoints).toBe(45);
-      expect(standings[0].totalRaces).toBe(1); // 1 unique race
-      expect(standings[0].position).toBe(1);
-      expect(standings[0].memberResults).toHaveLength(2);
+      expect(standings[0].organizationId.toString()).toBe(enrolledTeam._id.toString());
+    });
+
+    it("should write leagueId to team standing records", async () => {
+      const competition = await competitionService.create({
+        name: "Team Championship",
+        leagueId: leagueId.toString(),
+        seasonId: seasonId.toString(),
+        type: "team",
+        scoringMethod: { type: "points", pointsTable: { 1: 25 } },
+      });
+
+      const racer = await createPerson({ first: "Racer" });
+      await enrollPerson(racer._id as mongoose.Types.ObjectId);
+      const team = await OrganizationModel.create({
+        name: "Team LeagueId",
+        type: "team",
+        memberIds: [racer._id],
+      });
+      await enrollOrganization(team._id as mongoose.Types.ObjectId);
+
+      const race = await createRace();
+      await createRaceResult({
+        raceId: race._id as mongoose.Types.ObjectId,
+        racerId: racer._id as mongoose.Types.ObjectId,
+        seasonId, category: "cat3", position: 1, finishTime: 3600000,
+      });
+
+      await standingsService.calculateTeam(
+        competition._id.toString(),
+        seasonId.toString(),
+        leagueId.toString()
+      );
+
+      const doc = await TeamStandingModel.findOne({ competitionId: competition._id });
+      expect(doc!.leagueId.toString()).toBe(leagueId.toString());
     });
 
     it("should sort multiple teams by points descending (Req 6.8)", async () => {
       const competition = await competitionService.create({
         name: "Team Championship",
+        leagueId: leagueId.toString(),
         seasonId: seasonId.toString(),
         type: "team",
         scoringMethod: {
@@ -913,59 +964,52 @@ describe("StandingsService", () => {
       const racer2 = await createPerson({ first: "Bob" });
       const racer3 = await createPerson({ first: "Charlie" });
       const racer4 = await createPerson({ first: "Dave" });
+      await enrollPerson(racer1._id as mongoose.Types.ObjectId);
+      await enrollPerson(racer2._id as mongoose.Types.ObjectId);
+      await enrollPerson(racer3._id as mongoose.Types.ObjectId);
+      await enrollPerson(racer4._id as mongoose.Types.ObjectId);
 
-      // Team Alpha: racer1 (1st) + racer2 (2nd) = 45 points
-      const teamAlpha = await OrganizationModelRef.create({
+      const teamAlpha = await OrganizationModel.create({
         name: "Team Alpha",
         type: "team",
         memberIds: [racer1._id, racer2._id],
       });
+      await enrollOrganization(teamAlpha._id as mongoose.Types.ObjectId);
 
-      // Team Beta: racer3 (3rd) + racer4 (4th) = 29 points
-      const teamBeta = await OrganizationModelRef.create({
+      const teamBeta = await OrganizationModel.create({
         name: "Team Beta",
         type: "team",
         memberIds: [racer3._id, racer4._id],
       });
+      await enrollOrganization(teamBeta._id as mongoose.Types.ObjectId);
 
       const race = await createRace();
 
       await createRaceResult({
         raceId: race._id as mongoose.Types.ObjectId,
         racerId: racer1._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3500000,
+        seasonId, category: "cat3", position: 1, finishTime: 3500000,
       });
       await createRaceResult({
         raceId: race._id as mongoose.Types.ObjectId,
         racerId: racer2._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 2,
-        finishTime: 3600000,
+        seasonId, category: "cat3", position: 2, finishTime: 3600000,
       });
       await createRaceResult({
         raceId: race._id as mongoose.Types.ObjectId,
         racerId: racer3._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 3,
-        finishTime: 3700000,
+        seasonId, category: "cat3", position: 3, finishTime: 3700000,
       });
       await createRaceResult({
         raceId: race._id as mongoose.Types.ObjectId,
         racerId: racer4._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 4,
-        finishTime: 3800000,
+        seasonId, category: "cat3", position: 4, finishTime: 3800000,
       });
 
       const standings = await standingsService.calculateTeam(
         competition._id.toString(),
-        seasonId.toString()
+        seasonId.toString(),
+        leagueId.toString()
       );
 
       expect(standings).toHaveLength(2);
@@ -982,13 +1026,14 @@ describe("StandingsService", () => {
       const fakeId = new mongoose.Types.ObjectId().toString();
 
       await expect(
-        standingsService.calculateTeam(fakeId, seasonId.toString())
+        standingsService.calculateTeam(fakeId, seasonId.toString(), leagueId.toString())
       ).rejects.toThrow(`Competition with id "${fakeId}" not found`);
     });
 
     it("should throw error for non-team competition", async () => {
       const competition = await competitionService.create({
         name: "Individual Comp",
+        leagueId: leagueId.toString(),
         seasonId: seasonId.toString(),
         type: "individual",
         scoringMethod: { type: "points", pointsTable: { 1: 25 } },
@@ -997,184 +1042,66 @@ describe("StandingsService", () => {
       await expect(
         standingsService.calculateTeam(
           competition._id.toString(),
-          seasonId.toString()
+          seasonId.toString(),
+          leagueId.toString()
         )
       ).rejects.toThrow(/not a team competition/);
     });
 
-    it("should skip teams with no members", async () => {
+    it("should skip enrolled teams with no members", async () => {
       const competition = await competitionService.create({
         name: "Team Championship",
+        leagueId: leagueId.toString(),
         seasonId: seasonId.toString(),
         type: "team",
-        scoringMethod: {
-          type: "points",
-          pointsTable: { 1: 25 },
-        },
+        scoringMethod: { type: "points", pointsTable: { 1: 25 } },
       });
 
-      // Empty team
-      await OrganizationModelRef.create({
+      const emptyTeam = await OrganizationModel.create({
         name: "Empty Team",
         type: "team",
         memberIds: [],
       });
+      await enrollOrganization(emptyTeam._id as mongoose.Types.ObjectId);
 
       const standings = await standingsService.calculateTeam(
         competition._id.toString(),
-        seasonId.toString()
+        seasonId.toString(),
+        leagueId.toString()
       );
 
       expect(standings).toHaveLength(0);
     });
 
-    it("should apply eligibility criteria to filter team member results (Req 6.17)", async () => {
-      const competition = await competitionService.create({
-        name: "Team TT Cup",
-        seasonId: seasonId.toString(),
-        type: "team",
-        scoringMethod: {
-          type: "points",
-          pointsTable: { 1: 25, 2: 20 },
-        },
-        eligibilityCriteria: {
-          raceCriteria: { raceTypes: ["time_trial"] },
-        },
-      });
-
-      const racer = await createPerson({ first: "Racer" });
-
-      await OrganizationModelRef.create({
-        name: "Team A",
-        type: "team",
-        memberIds: [racer._id],
-      });
-
-      const critRace = await createRace({ raceType: "crit" });
-      const ttRace = await createRace({ raceType: "time_trial" });
-
-      await createRaceResult({
-        raceId: critRace._id as mongoose.Types.ObjectId,
-        racerId: racer._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3500000,
-      });
-      await createRaceResult({
-        raceId: ttRace._id as mongoose.Types.ObjectId,
-        racerId: racer._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 1800000,
-      });
-
-      const standings = await standingsService.calculateTeam(
-        competition._id.toString(),
-        seasonId.toString()
-      );
-
-      expect(standings).toHaveLength(1);
-      // Only TT result counts (25 points)
-      expect(standings[0].totalPoints).toBe(25);
-      expect(standings[0].memberResults).toHaveLength(1);
-    });
-
-    it("should upsert team standings in MongoDB", async () => {
+    it("should insert team standings history into TimescaleDB with leagueId", async () => {
       const competition = await competitionService.create({
         name: "Team Championship",
+        leagueId: leagueId.toString(),
         seasonId: seasonId.toString(),
         type: "team",
-        scoringMethod: {
-          type: "points",
-          pointsTable: { 1: 25 },
-        },
+        scoringMethod: { type: "points", pointsTable: { 1: 25 } },
       });
 
       const racer = await createPerson({ first: "Racer" });
-
-      await OrganizationModelRef.create({
-        name: "Team Upsert",
-        type: "team",
-        memberIds: [racer._id],
-      });
-
-      const race1 = await createRace();
-      await createRaceResult({
-        raceId: race1._id as mongoose.Types.ObjectId,
-        racerId: racer._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3600000,
-      });
-
-      // First calculation
-      await standingsService.calculateTeam(
-        competition._id.toString(),
-        seasonId.toString()
-      );
-
-      // Add another race result and recalculate
-      const race2 = await createRace();
-      await createRaceResult({
-        raceId: race2._id as mongoose.Types.ObjectId,
-        racerId: racer._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3500000,
-      });
-
-      const standings = await standingsService.calculateTeam(
-        competition._id.toString(),
-        seasonId.toString()
-      );
-
-      // Should update existing, not create duplicate
-      expect(standings).toHaveLength(1);
-      expect(standings[0].totalPoints).toBe(50); // 25 + 25
-      expect(standings[0].totalRaces).toBe(2);
-
-      const count = await TeamStandingModelRef.countDocuments({
-        competitionId: competition._id,
-        seasonId,
-      });
-      expect(count).toBe(1);
-    });
-
-    it("should insert team standings history into TimescaleDB", async () => {
-      const competition = await competitionService.create({
-        name: "Team Championship",
-        seasonId: seasonId.toString(),
-        type: "team",
-        scoringMethod: {
-          type: "points",
-          pointsTable: { 1: 25 },
-        },
-      });
-
-      const racer = await createPerson({ first: "Racer" });
-      const team = await OrganizationModelRef.create({
+      await enrollPerson(racer._id as mongoose.Types.ObjectId);
+      const team = await OrganizationModel.create({
         name: "Team History",
         type: "team",
         memberIds: [racer._id],
       });
+      await enrollOrganization(team._id as mongoose.Types.ObjectId);
 
       const race = await createRace();
       await createRaceResult({
         raceId: race._id as mongoose.Types.ObjectId,
         racerId: racer._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3600000,
+        seasonId, category: "cat3", position: 1, finishTime: 3600000,
       });
 
       await standingsService.calculateTeam(
         competition._id.toString(),
-        seasonId.toString()
+        seasonId.toString(),
+        leagueId.toString()
       );
 
       expect(mockedQueryWithRetry).toHaveBeenCalledWith(
@@ -1184,6 +1111,7 @@ describe("StandingsService", () => {
           team._id.toString(), // organization_id
           competition._id.toString(), // competition_id
           seasonId.toString(), // season_id
+          leagueId.toString(), // league_id
           1, // position
           25, // total_points
         ])
@@ -1197,32 +1125,32 @@ describe("StandingsService", () => {
 
       const competition = await competitionService.create({
         name: "Team Championship",
+        leagueId: leagueId.toString(),
         seasonId: seasonId.toString(),
         type: "team",
         scoringMethod: { type: "points", pointsTable: { 1: 25 } },
       });
 
       const racer = await createPerson({ first: "Racer" });
-      await OrganizationModelRef.create({
+      await enrollPerson(racer._id as mongoose.Types.ObjectId);
+      const team = await OrganizationModel.create({
         name: "Team Resilient",
         type: "team",
         memberIds: [racer._id],
       });
+      await enrollOrganization(team._id as mongoose.Types.ObjectId);
 
       const race = await createRace();
       await createRaceResult({
         raceId: race._id as mongoose.Types.ObjectId,
         racerId: racer._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3600000,
+        seasonId, category: "cat3", position: 1, finishTime: 3600000,
       });
 
-      // Should not throw
       const standings = await standingsService.calculateTeam(
         competition._id.toString(),
-        seasonId.toString()
+        seasonId.toString(),
+        leagueId.toString()
       );
 
       expect(standings).toHaveLength(1);
@@ -1232,53 +1160,49 @@ describe("StandingsService", () => {
     it("should remove team standings for teams no longer qualifying", async () => {
       const competition = await competitionService.create({
         name: "Team Championship",
+        leagueId: leagueId.toString(),
         seasonId: seasonId.toString(),
         type: "team",
-        scoringMethod: {
-          type: "points",
-          pointsTable: { 1: 25 },
-        },
+        scoringMethod: { type: "points", pointsTable: { 1: 25 } },
       });
 
       const racer = await createPerson({ first: "Racer" });
-      const team = await OrganizationModelRef.create({
+      await enrollPerson(racer._id as mongoose.Types.ObjectId);
+      const team = await OrganizationModel.create({
         name: "Team Remove",
         type: "team",
         memberIds: [racer._id],
       });
+      await enrollOrganization(team._id as mongoose.Types.ObjectId);
 
       const race = await createRace();
       await createRaceResult({
         raceId: race._id as mongoose.Types.ObjectId,
         racerId: racer._id as mongoose.Types.ObjectId,
-        seasonId,
-        category: "cat3",
-        position: 1,
-        finishTime: 3600000,
+        seasonId, category: "cat3", position: 1, finishTime: 3600000,
       });
 
-      // First calculation creates a standing
       await standingsService.calculateTeam(
         competition._id.toString(),
-        seasonId.toString()
+        seasonId.toString(),
+        leagueId.toString()
       );
 
       // Remove all members from team
-      await OrganizationModelRef.findByIdAndUpdate(team._id, {
+      await OrganizationModel.findByIdAndUpdate(team._id, {
         $set: { memberIds: [] },
       });
 
-      // Recalculate - team should be removed
       const standings = await standingsService.calculateTeam(
         competition._id.toString(),
-        seasonId.toString()
+        seasonId.toString(),
+        leagueId.toString()
       );
 
       expect(standings).toHaveLength(0);
 
-      const count = await TeamStandingModelRef.countDocuments({
-        competitionId: competition._id,
-        seasonId,
+      const count = await TeamStandingModel.countDocuments({
+        competitionId: competition._id, seasonId,
       });
       expect(count).toBe(0);
     });

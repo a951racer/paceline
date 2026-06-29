@@ -7,8 +7,9 @@ import React, {
   useEffect,
   useCallback,
 } from "react";
+import { useLeagueStore } from "@/hooks/use-league-store";
 
-/** Branding data returned from /api/branding */
+/** Branding data returned from /api/branding or /api/leagues/[leagueId]/branding */
 export interface BrandingData {
   leagueName: string;
   logos: {
@@ -46,9 +47,9 @@ const ThemeContext = createContext<ThemeContextValue>(defaultContext);
 
 /**
  * Apply branding colors as CSS custom properties on the document root element.
+ * CSS custom properties update on league switch.
  *
- * Requirements 19.3: Apply 3 main colors to primary UI elements
- * Requirements 19.4: Apply 1-2 accent colors to secondary UI elements
+ * Requirements 11.3, 11.4: Apply branding from active league configuration
  */
 function applyBrandingColors(branding: BrandingData): void {
   const root = document.documentElement;
@@ -69,8 +70,6 @@ function applyBrandingColors(branding: BrandingData): void {
 
 /**
  * Apply theme mode as a data attribute on the html element.
- *
- * Requirement 11.7: Support light and dark mode toggle
  */
 function applyThemeMode(mode: ThemeMode): void {
   document.documentElement.setAttribute("data-theme", mode);
@@ -79,16 +78,19 @@ function applyThemeMode(mode: ThemeMode): void {
 /**
  * ThemeProvider - Provides branding context and light/dark mode support.
  *
- * Fetches branding from /api/branding on mount (client-side) and applies
- * mainColors and accentColors as CSS custom properties on the document root.
+ * Sources branding from active league's embedded configuration.
+ * When the league context changes (activeLeagueId updates in Zustand store),
+ * re-fetches branding from the league-specific endpoint and updates CSS custom properties.
  *
- * Requirements: 19.3, 19.4, 11.7
+ * Requirements: 11.3, 11.4
  */
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [branding, setBranding] = useState<BrandingData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mode, setModeState] = useState<ThemeMode>("light");
+
+  const activeLeagueId = useLeagueStore((state) => state.activeLeagueId);
 
   // Initialize theme mode from localStorage on mount
   useEffect(() => {
@@ -97,7 +99,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       setModeState(stored);
       applyThemeMode(stored);
     } else {
-      // Default to system preference
       const prefersDark = window.matchMedia(
         "(prefers-color-scheme: dark)"
       ).matches;
@@ -107,11 +108,20 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Fetch branding on mount
+  // Fetch branding when activeLeagueId changes (or on mount)
   useEffect(() => {
     async function fetchBranding() {
       try {
-        const response = await fetch("/api/branding");
+        setIsLoading(true);
+        setError(null);
+
+        // If there's an active league, fetch league-specific branding
+        // Otherwise fall back to the default /api/branding endpoint
+        const url = activeLeagueId
+          ? `/api/leagues/${activeLeagueId}/branding`
+          : "/api/branding";
+
+        const response = await fetch(url);
         if (!response.ok) {
           throw new Error(`Failed to fetch branding: ${response.status}`);
         }
@@ -130,7 +140,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
 
     fetchBranding();
-  }, []);
+  }, [activeLeagueId]);
 
   const setMode = useCallback((newMode: ThemeMode) => {
     setModeState(newMode);

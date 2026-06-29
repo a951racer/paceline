@@ -11,6 +11,7 @@ import {
   Star,
   TrendingUp,
 } from "lucide-react";
+import { PublicLeagueSelector } from "@/components/public-league-selector";
 
 // --- Types ---
 
@@ -67,24 +68,20 @@ interface SeasonsResponse {
   data: Season[];
 }
 
-// --- Category display helpers ---
-
-const categoryLabels: Record<string, string> = {
-  cat1: "Category 1",
-  cat2: "Category 2",
-  cat3: "Category 3",
-  cat4: "Category 4",
-  cat5: "Category 5",
-  beginner: "Beginner",
-};
-
-function getCategoryLabel(category: string): string {
-  return categoryLabels[category] || category;
-}
-
 // --- Component ---
 
+/**
+ * Public Standings Page
+ *
+ * - Adds PublicLeagueSelector for visitors to choose league
+ * - Displays standings for active season of selected league
+ * - Allows switching between historical seasons within selected league
+ * - Shows only enrolled persons/teams in standings
+ *
+ * Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6
+ */
 export default function StandingsPage() {
+  const [selectedLeagueId, setSelectedLeagueId] = useState<string>("");
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [selectedSeasonId, setSelectedSeasonId] = useState<string>("");
   const [standings, setStandings] = useState<Record<string, StandingEntry[]>>(
@@ -96,12 +93,43 @@ export default function StandingsPage() {
   const [seasonName, setSeasonName] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [categoryLookup, setCategoryLookup] = useState<Record<string, string>>({});
 
-  // Fetch seasons list
+  // Fetch category reference data for the selected league (public-safe: falls back to raw key)
+  useEffect(() => {
+    async function fetchCategories() {
+      if (!selectedLeagueId) return;
+      try {
+        const res = await fetch(
+          `/api/admin/reference-data?type=category&leagueId=${encodeURIComponent(selectedLeagueId)}`
+        );
+        if (res.ok) {
+          const json = await res.json();
+          const items: { key: string; label: string }[] = json.data ?? json;
+          const lookup: Record<string, string> = {};
+          for (const item of items) {
+            lookup[item.key] = item.label;
+          }
+          setCategoryLookup(lookup);
+        }
+      } catch {
+        // Non-critical: fall back to raw key display
+      }
+    }
+    fetchCategories();
+  }, [selectedLeagueId]);
+
+  const resolveCategory = useCallback(
+    (key: string): string => categoryLookup[key] || key,
+    [categoryLookup]
+  );
+
+  // Fetch seasons for the selected league
   useEffect(() => {
     async function fetchSeasons() {
+      if (!selectedLeagueId) return;
       try {
-        const res = await fetch("/api/seasons");
+        const res = await fetch(`/api/seasons?leagueId=${selectedLeagueId}`);
         if (res.ok) {
           const json: SeasonsResponse = await res.json();
           setSeasons(json.data || []);
@@ -111,47 +139,62 @@ export default function StandingsPage() {
       }
     }
     fetchSeasons();
-  }, []);
+  }, [selectedLeagueId]);
 
-  // Fetch standings based on selected season
-  const fetchStandings = useCallback(async (seasonId?: string) => {
-    setIsLoading(true);
-    setError(null);
+  // Fetch standings based on selected league and season
+  const fetchStandings = useCallback(
+    async (seasonId?: string) => {
+      if (!selectedLeagueId) return;
+      setIsLoading(true);
+      setError(null);
 
-    try {
-      const standingsUrl = seasonId
-        ? `/api/standings/${seasonId}`
-        : "/api/standings";
-      const [standingsRes, teamRes] = await Promise.all([
-        fetch(standingsUrl),
-        fetch("/api/standings/team"),
-      ]);
+      try {
+        const leagueParam = `leagueId=${selectedLeagueId}`;
+        const standingsUrl = seasonId
+          ? `/api/standings/${seasonId}?${leagueParam}`
+          : `/api/standings?${leagueParam}`;
+        const teamUrl = `/api/standings/team?${leagueParam}`;
 
-      if (!standingsRes.ok) {
-        throw new Error("Failed to fetch standings");
+        const [standingsRes, teamRes] = await Promise.all([
+          fetch(standingsUrl),
+          fetch(teamUrl),
+        ]);
+
+        if (!standingsRes.ok) {
+          throw new Error("Failed to fetch standings");
+        }
+
+        const standingsJson: StandingsResponse = await standingsRes.json();
+        setStandings(standingsJson.data || {});
+        setSeasonName(standingsJson.seasonName || "");
+
+        if (teamRes.ok) {
+          const teamJson: TeamStandingsResponse = await teamRes.json();
+          setTeamStandings(teamJson.data || {});
+        }
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Failed to load standings";
+        setError(message);
+      } finally {
+        setIsLoading(false);
       }
+    },
+    [selectedLeagueId]
+  );
 
-      const standingsJson: StandingsResponse = await standingsRes.json();
-      setStandings(standingsJson.data || {});
-      setSeasonName(standingsJson.seasonName || "");
-
-      if (teamRes.ok) {
-        const teamJson: TeamStandingsResponse = await teamRes.json();
-        setTeamStandings(teamJson.data || {});
-      }
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to load standings";
-      setError(message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  // Initial load - fetch active season standings
+  // Re-fetch standings when league changes (load active season standings)
   useEffect(() => {
-    fetchStandings();
-  }, [fetchStandings]);
+    if (selectedLeagueId) {
+      setSelectedSeasonId("");
+      fetchStandings();
+    }
+  }, [selectedLeagueId, fetchStandings]);
+
+  // Handle league change from PublicLeagueSelector
+  function handleLeagueChange(leagueId: string) {
+    setSelectedLeagueId(leagueId);
+  }
 
   // Handle season change
   function handleSeasonChange(e: React.ChangeEvent<HTMLSelectElement>) {
@@ -202,33 +245,42 @@ export default function StandingsPage() {
               </p>
             </div>
 
-            {/* Season Selector */}
-            <div className="relative">
-              <label htmlFor="season-select" className="sr-only">
-                Select season
-              </label>
+            {/* Selectors */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              {/* League Selector */}
+              <PublicLeagueSelector
+                selectedLeagueId={selectedLeagueId}
+                onLeagueChange={handleLeagueChange}
+              />
+
+              {/* Season Selector */}
               <div className="relative">
-                <select
-                  id="season-select"
-                  value={selectedSeasonId}
-                  onChange={handleSeasonChange}
-                  className="appearance-none rounded-lg border border-white/20 bg-white/10 px-4 py-2.5 pr-10 text-sm font-medium text-white backdrop-blur-sm transition focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20"
-                >
-                  <option value="" className="text-gray-900">
-                    Active Season
-                  </option>
-                  {seasons.map((season) => (
-                    <option
-                      key={season._id}
-                      value={season._id}
-                      className="text-gray-900"
-                    >
-                      {season.name}
-                      {season.isActive ? " (Active)" : ""}
+                <label htmlFor="season-select" className="sr-only">
+                  Select season
+                </label>
+                <div className="relative">
+                  <select
+                    id="season-select"
+                    value={selectedSeasonId}
+                    onChange={handleSeasonChange}
+                    className="appearance-none rounded-lg border border-white/20 bg-white/10 px-4 py-2.5 pr-10 text-sm font-medium text-white backdrop-blur-sm transition focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20"
+                  >
+                    <option value="" className="text-gray-900">
+                      Active Season
                     </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/70" />
+                    {seasons.map((season) => (
+                      <option
+                        key={season._id}
+                        value={season._id}
+                        className="text-gray-900"
+                      >
+                        {season.name}
+                        {season.isActive ? " (Active)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/70" />
+                </div>
               </div>
             </div>
           </div>
@@ -260,6 +312,7 @@ export default function StandingsPage() {
                         key={category}
                         category={category}
                         entries={entries}
+                        resolveCategory={resolveCategory}
                       />
                     )
                   )}
@@ -320,15 +373,17 @@ export default function StandingsPage() {
 function CategoryStandingsTable({
   category,
   entries,
+  resolveCategory,
 }: {
   category: string;
   entries: StandingEntry[];
+  resolveCategory: (key: string) => string;
 }) {
   return (
     <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--background)]">
       <div className="border-b border-[var(--border)] bg-[var(--muted)] px-4 py-3">
         <h3 className="text-sm font-semibold text-[var(--foreground)]">
-          {getCategoryLabel(category)}
+          {resolveCategory(category)}
         </h3>
       </div>
       <div className="overflow-x-auto">
@@ -403,7 +458,6 @@ function TeamStandingsCard({
 }: {
   teamStandings: Record<string, TeamStandingEntry[]>;
 }) {
-  // Flatten all team standings and sort by position
   const allTeams: TeamStandingEntry[] = Object.values(teamStandings)
     .flat()
     .sort((a, b) => a.position - b.position);

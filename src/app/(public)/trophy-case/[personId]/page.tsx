@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { Trophy, Award, Medal, Loader2, ArrowLeft } from "lucide-react";
+import { Trophy, Award, Medal, Loader2, ArrowLeft, Globe } from "lucide-react";
 
 // --- Types ---
 
@@ -42,14 +42,30 @@ interface SeasonEntry {
   awards: AssignedAward[];
 }
 
+interface LeagueGroup {
+  leagueId: string;
+  leagueName: string;
+  seasons: SeasonEntry[];
+}
+
 interface TrophyCaseData {
   personId: string;
   personName: string;
-  seasons: SeasonEntry[];
+  leagues?: LeagueGroup[];
+  seasons?: SeasonEntry[]; // Legacy format fallback
 }
 
 // --- Component ---
 
+/**
+ * Person Trophy Case Page
+ *
+ * Groups achievements and awards by league then season.
+ * Displays league name as grouping header.
+ * Shows entries from all leagues regardless of active context.
+ *
+ * Requirements: 8.1, 8.2, 8.3, 8.5
+ */
 export default function PersonTrophyCasePage() {
   const params = useParams();
   const personId = params.personId as string;
@@ -87,6 +103,15 @@ export default function PersonTrophyCasePage() {
     }
   }, [personId]);
 
+  // Build league groups - handle both new (leagues array) and legacy (seasons array) response format
+  const leagueGroups: LeagueGroup[] = data?.leagues
+    ? data.leagues
+    : data?.seasons
+      ? [{ leagueId: "default", leagueName: "League", seasons: data.seasons }]
+      : [];
+
+  const hasContent = leagueGroups.some((lg) => lg.seasons.length > 0);
+
   return (
     <div className="min-h-screen bg-[var(--background)]">
       {/* Page Header */}
@@ -119,10 +144,14 @@ export default function PersonTrophyCasePage() {
           <LoadingState />
         ) : error ? (
           <ErrorState message={error} />
-        ) : data && data.seasons.length === 0 ? (
+        ) : !hasContent ? (
           <EmptyState />
         ) : (
-          data && <SeasonsList seasons={data.seasons} />
+          <div className="space-y-12">
+            {leagueGroups.map((leagueGroup) => (
+              <LeagueSection key={leagueGroup.leagueId} leagueGroup={leagueGroup} />
+            ))}
+          </div>
         )}
       </div>
     </div>
@@ -131,12 +160,24 @@ export default function PersonTrophyCasePage() {
 
 // --- Sub-components ---
 
-function SeasonsList({ seasons }: { seasons: SeasonEntry[] }) {
+function LeagueSection({ leagueGroup }: { leagueGroup: LeagueGroup }) {
+  if (leagueGroup.seasons.length === 0) return null;
+
   return (
-    <div className="space-y-10">
-      {seasons.map((season) => (
-        <SeasonSection key={season.seasonId} season={season} />
-      ))}
+    <div>
+      {/* League Header */}
+      <div className="flex items-center gap-2 mb-6">
+        <Globe className="h-5 w-5 text-[var(--color-primary,#1e3a5f)]" />
+        <h2 className="text-xl font-bold text-[var(--foreground)]">
+          {leagueGroup.leagueName}
+        </h2>
+      </div>
+
+      <div className="space-y-8">
+        {leagueGroup.seasons.map((season) => (
+          <SeasonSection key={season.seasonId} season={season} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -149,9 +190,9 @@ function SeasonSection({ season }: { season: SeasonEntry }) {
       {/* Season Header */}
       <div className="border-b border-[var(--border)] bg-[var(--muted)] px-6 py-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-[var(--foreground)]">
+          <h3 className="text-lg font-semibold text-[var(--foreground)]">
             {season.seasonName}
-          </h2>
+          </h3>
           <span className="rounded-full bg-[var(--color-primary,#1e3a5f)]/10 px-3 py-1 text-xs font-medium text-[var(--color-primary,#1e3a5f)]">
             {totalItems} {totalItems === 1 ? "item" : "items"}
           </span>
@@ -164,9 +205,9 @@ function SeasonSection({ season }: { season: SeasonEntry }) {
           <div className="p-6">
             <div className="mb-4 flex items-center gap-2">
               <Medal className="h-5 w-5 text-[var(--color-primary,#1e3a5f)]" />
-              <h3 className="text-sm font-semibold text-[var(--foreground)]">
+              <h4 className="text-sm font-semibold text-[var(--foreground)]">
                 Achievements
-              </h3>
+              </h4>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {season.achievements.map((achievement, idx) => (
@@ -181,9 +222,9 @@ function SeasonSection({ season }: { season: SeasonEntry }) {
           <div className="p-6">
             <div className="mb-4 flex items-center gap-2">
               <Award className="h-5 w-5 text-[var(--color-primary,#1e3a5f)]" />
-              <h3 className="text-sm font-semibold text-[var(--foreground)]">
+              <h4 className="text-sm font-semibold text-[var(--foreground)]">
                 Awards
-              </h3>
+              </h4>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {season.awards.map((award, idx) => (
@@ -206,7 +247,6 @@ function AchievementCard({ achievement }: { achievement: EarnedAchievement }) {
 
   return (
     <div className="flex gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4 transition hover:shadow-sm">
-      {/* Badge */}
       <div className="flex-shrink-0">
         {detail?.badgeUrl ? (
           <Image
@@ -222,8 +262,6 @@ function AchievementCard({ achievement }: { achievement: EarnedAchievement }) {
           </div>
         )}
       </div>
-
-      {/* Details */}
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-[var(--foreground)]">
           {detail?.name || "Achievement"}
@@ -250,7 +288,6 @@ function AwardCard({ award }: { award: AssignedAward }) {
 
   return (
     <div className="flex gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4 transition hover:shadow-sm">
-      {/* Badge */}
       <div className="flex-shrink-0">
         {detail?.badgeUrl ? (
           <Image
@@ -266,8 +303,6 @@ function AwardCard({ award }: { award: AssignedAward }) {
           </div>
         )}
       </div>
-
-      {/* Details */}
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-[var(--foreground)]">
           {detail?.name || "Award"}
