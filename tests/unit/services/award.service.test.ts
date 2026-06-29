@@ -13,6 +13,7 @@ import { SeasonService } from "@/services/season.service";
 let mongoServer: MongoMemoryServer;
 let service: AwardService;
 let seasonService: SeasonService;
+const defaultLeagueId = new mongoose.Types.ObjectId().toString();
 
 beforeAll(async () => {
   mongoServer = await MongoMemoryServer.create();
@@ -40,6 +41,7 @@ afterEach(async () => {
 async function createActiveSeason() {
   const season = await seasonService.create({
     name: "2024 Season",
+    leagueId: defaultLeagueId,
     startDate: new Date("2024-01-01"),
     endDate: new Date("2024-12-31"),
   });
@@ -102,13 +104,15 @@ describe("AwardService", () => {
       const assigned = await service.assign(
         award._id.toString(),
         person._id.toString(),
-        season!._id.toString()
+        season!._id.toString(),
+        defaultLeagueId
       );
 
       expect(assigned).toBeDefined();
       expect(assigned.awardId.toString()).toBe(award._id.toString());
       expect(assigned.recipientId.toString()).toBe(person._id.toString());
       expect(assigned.seasonId.toString()).toBe(season!._id.toString());
+      expect(assigned.leagueId.toString()).toBe(defaultLeagueId);
       expect(assigned.source).toBe("admin_assigned");
       expect(assigned.assignedAt).toBeInstanceOf(Date);
       expect(assigned.nominationId).toBeUndefined();
@@ -133,7 +137,8 @@ describe("AwardService", () => {
       const assigned = await service.assign(
         award._id.toString(),
         volunteer._id.toString(),
-        season!._id.toString()
+        season!._id.toString(),
+        defaultLeagueId
       );
 
       expect(assigned.recipientId.toString()).toBe(volunteer._id.toString());
@@ -235,12 +240,14 @@ describe("AwardService", () => {
 
       const assigned = await service.approveNomination(
         nomination._id.toString(),
+        defaultLeagueId,
         reviewer._id.toString()
       );
 
       expect(assigned).toBeDefined();
       expect(assigned.awardId.toString()).toBe(award._id.toString());
       expect(assigned.recipientId.toString()).toBe(nominee._id.toString());
+      expect(assigned.leagueId.toString()).toBe(defaultLeagueId);
       expect(assigned.source).toBe("peer_nominated");
       expect(assigned.nominationId!.toString()).toBe(nomination._id.toString());
 
@@ -269,7 +276,7 @@ describe("AwardService", () => {
         seasonId: season!._id.toString(),
       });
 
-      const assigned = await service.approveNomination(nomination._id.toString());
+      const assigned = await service.approveNomination(nomination._id.toString(), defaultLeagueId);
 
       // Should use the active season
       expect(assigned.seasonId.toString()).toBe(season!._id.toString());
@@ -278,7 +285,7 @@ describe("AwardService", () => {
     it("should throw if nomination not found", async () => {
       const fakeId = new mongoose.Types.ObjectId().toString();
 
-      await expect(service.approveNomination(fakeId)).rejects.toThrow(
+      await expect(service.approveNomination(fakeId, defaultLeagueId)).rejects.toThrow(
         `Nomination with id "${fakeId}" not found`
       );
     });
@@ -302,11 +309,11 @@ describe("AwardService", () => {
       });
 
       // Approve once
-      await service.approveNomination(nomination._id.toString());
+      await service.approveNomination(nomination._id.toString(), defaultLeagueId);
 
       // Approve again should throw
       await expect(
-        service.approveNomination(nomination._id.toString())
+        service.approveNomination(nomination._id.toString(), defaultLeagueId)
       ).rejects.toThrow("Nomination is already approved and cannot be approved");
     });
   });

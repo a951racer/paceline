@@ -16,11 +16,25 @@ import { SeasonService } from "@/services/season.service";
 
 const seasonService = new SeasonService();
 
-const handleGet = async (): Promise<NextResponse> => {
+const handleGet = async (request: Request): Promise<NextResponse> => {
   try {
     await connectMongoDB();
 
-    const activeSeason = await seasonService.getActive();
+    const url = new URL(request.url);
+    const leagueId = url.searchParams.get("leagueId");
+
+    if (!leagueId) {
+      return NextResponse.json(
+        {
+          status: 400,
+          code: "LEAGUE_REQUIRED",
+          message: "leagueId query parameter is required",
+        },
+        { status: 400 }
+      );
+    }
+
+    const activeSeason = await seasonService.getActive(leagueId);
 
     if (!activeSeason) {
       return NextResponse.json(
@@ -34,6 +48,7 @@ const handleGet = async (): Promise<NextResponse> => {
 
     const standings = await StandingModel.find({
       seasonId: activeSeason._id,
+      leagueId,
     }).sort({ competitionId: 1, position: 1 });
 
     // Group standings by competitionId

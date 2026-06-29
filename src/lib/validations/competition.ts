@@ -61,6 +61,7 @@ const eligibilityCriteriaSchema = z.object({
 export const createCompetitionSchema = z.object({
   name: z.string().min(1, "Competition name is required"),
   description: z.string().optional(),
+  leagueId: z.string().min(1, "League ID is required"),
   seasonId: z.string().min(1, "Season ID is required"),
   type: z.enum(competitionTypeValues),
   scoringMethod: scoringMethodSchema,

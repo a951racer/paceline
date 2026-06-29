@@ -29,13 +29,13 @@ interface StandingsSnapshot {
 }
 
 /** Callback hook for recognition recalculation after standings update */
-let onStandingsUpdated: ((seasonId: string) => void) | null = null;
+let onStandingsUpdated: ((seasonId: string, leagueId: string) => void) | null = null;
 
 /**
  * Set the callback for recognition recalculation after standings are updated.
  */
 export function setOnStandingsUpdatedCallback(
-  callback: ((seasonId: string) => void) | null
+  callback: ((seasonId: string, leagueId: string) => void) | null
 ): void {
   onStandingsUpdated = callback;
 }
@@ -43,9 +43,9 @@ export function setOnStandingsUpdatedCallback(
 /**
  * Trigger the standings updated callback (called by StandingsService after recalculation).
  */
-export function notifyStandingsUpdated(seasonId: string): void {
+export function notifyStandingsUpdated(seasonId: string, leagueId: string): void {
   if (onStandingsUpdated) {
-    onStandingsUpdated(seasonId);
+    onStandingsUpdated(seasonId, leagueId);
   }
 }
 
@@ -74,12 +74,13 @@ export class CalculatedRecognitionService {
   }
 
   /**
-   * Run all active recognitions for the given season.
+   * Run all active recognitions for the given league-season.
    * For each active recognition, compute the winner and record it.
    *
    * Requirement 17.4: Recalculate all active recognitions when results are updated
+   * Requirement 5.6: Computed recognitions scoped to league-season
    */
-  async compute(seasonId: string): Promise<EarnedRecognitionDocument[]> {
+  async compute(seasonId: string, leagueId: string): Promise<EarnedRecognitionDocument[]> {
     await connectMongoDB();
 
     const activeRecognitions = await CalculatedRecognitionModel.find({
@@ -95,22 +96,24 @@ export class CalculatedRecognitionService {
       let winner: { personId: string; computedValue: number } | null = null;
 
       if (recognition.computationMethod === "most_improved") {
-        winner = await this.computeMostImproved(seasonId, timePeriodDays);
+        winner = await this.computeMostImproved(seasonId, timePeriodDays, leagueId);
       } else if (recognition.computationMethod === "biggest_mover") {
-        winner = await this.computeBiggestMover(seasonId, timePeriodDays);
+        winner = await this.computeBiggestMover(seasonId, timePeriodDays, leagueId);
       }
       // 'custom' computation method is a placeholder for future extensibility
 
       if (winner) {
-        // Remove previous earned recognition for this recognition+season and upsert
+        // Remove previous earned recognition for this recognition+season+league and upsert
         await EarnedRecognitionModel.deleteMany({
           recognitionId: recognition._id,
           seasonId,
+          leagueId,
         });
 
         const earned = await EarnedRecognitionModel.create({
           recognitionId: recognition._id,
           personId: winner.personId,
+          leagueId,
           seasonId,
           computedValue: winner.computedValue,
           earnedAt: new Date(),
@@ -124,33 +127,37 @@ export class CalculatedRecognitionService {
   }
 
   /**
-   * Compute the "Most Improved" rider for a season.
+   * Compute the "Most Improved" rider for a league-season.
    * "Most Improved" is the racer with the greatest improvement (decrease)
    * in standings position over the configured time period.
    *
    * Queries TimescaleDB standings_history for position changes.
    *
    * Requirement 17.2: Most Improved computes improvement in standings over time period
+   * Requirement 5.6: Scoped to league-season
    */
   async getMostImproved(
     seasonId: string,
-    period: number
+    period: number,
+    leagueId?: string
   ): Promise<{ personId: string; computedValue: number } | null> {
-    return this.computeMostImproved(seasonId, period);
+    return this.computeMostImproved(seasonId, period, leagueId);
   }
 
   /**
-   * Compute the "Biggest Mover" for a season.
+   * Compute the "Biggest Mover" for a league-season.
    * "Biggest Mover" is the racer with the largest positive change in standings
    * within a single period (i.e., the biggest improvement between consecutive snapshots).
    *
    * Requirement 17.3: Biggest Mover identifies largest positive change in standings
+   * Requirement 5.6: Scoped to league-season
    */
   async getBiggestMover(
     seasonId: string,
-    period: number
+    period: number,
+    leagueId?: string
   ): Promise<{ personId: string; computedValue: number } | null> {
-    return this.computeBiggestMover(seasonId, period);
+    return this.computeBiggestMover(seasonId, period, leagueId);
   }
 
   /**
@@ -158,15 +165,23 @@ export class CalculatedRecognitionService {
    * Compares each person's earliest position to their latest position
    * within the time period. The person with the greatest position decrease
    * (i.e., moved from a higher number to a lower number = improved) wins.
+   * When leagueId is provided, filters standings_history by league_id.
    */
   private async computeMostImproved(
     seasonId: string,
-    timePeriodDays: number
+    timePeriodDays: number,
+    leagueId?: string
   ): Promise<{ personId: string; computedValue: number } | null> {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - timePeriodDays);
 
     try {
+      const leagueFilter = leagueId ? `AND league_id = $3` : '';
+      const params: (string | number)[] = [seasonId, cutoffDate.toISOString()];
+      if (leagueId) {
+        params.push(leagueId);
+      }
+
       // Get earliest and latest position for each person within the time window
       const result = await queryWithRetry<{
         person_id: string;
@@ -182,11 +197,12 @@ export class CalculatedRecognitionService {
         FROM standings_history
         WHERE season_id = $1
           AND time >= $2
+          ${leagueFilter}
         GROUP BY person_id
         HAVING count(*) > 1
         ORDER BY improvement DESC
         LIMIT 1`,
-        [seasonId, cutoffDate.toISOString()]
+        params
       );
 
       if (result.rows.length === 0) {
@@ -217,15 +233,23 @@ export class CalculatedRecognitionService {
    * Finds the largest positive change between any two consecutive standings snapshots
    * for a person within the time period. Uses TimescaleDB lag() to compare
    * consecutive positions.
+   * When leagueId is provided, filters standings_history by league_id.
    */
   private async computeBiggestMover(
     seasonId: string,
-    timePeriodDays: number
+    timePeriodDays: number,
+    leagueId?: string
   ): Promise<{ personId: string; computedValue: number } | null> {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - timePeriodDays);
 
     try {
+      const leagueFilter = leagueId ? `AND league_id = $3` : '';
+      const params: (string | number)[] = [seasonId, cutoffDate.toISOString()];
+      if (leagueId) {
+        params.push(leagueId);
+      }
+
       // Find the biggest single-period improvement (position decrease) for any person
       const result = await queryWithRetry<{
         person_id: string;
@@ -239,6 +263,7 @@ export class CalculatedRecognitionService {
           FROM standings_history
           WHERE season_id = $1
             AND time >= $2
+            ${leagueFilter}
         )
         SELECT
           person_id,
@@ -249,7 +274,7 @@ export class CalculatedRecognitionService {
         HAVING max(prev_position - position) > 0
         ORDER BY biggest_move DESC
         LIMIT 1`,
-        [seasonId, cutoffDate.toISOString()]
+        params
       );
 
       if (result.rows.length === 0) {
@@ -280,9 +305,9 @@ export class CalculatedRecognitionService {
  */
 export function wireRecognitionRecalculation(): void {
   const recognitionService = new CalculatedRecognitionService();
-  setOnStandingsUpdatedCallback((seasonId: string) => {
+  setOnStandingsUpdatedCallback((seasonId: string, leagueId: string) => {
     // Fire and forget - compute recognitions in the background
-    recognitionService.compute(seasonId).catch((error) => {
+    recognitionService.compute(seasonId, leagueId).catch((error) => {
       console.error(
         "[CalculatedRecognitionService] Failed to compute recognitions:",
         error instanceof Error ? error.message : error

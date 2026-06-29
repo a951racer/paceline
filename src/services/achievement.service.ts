@@ -3,7 +3,7 @@
  * Handles achievement definition, threshold-based awarding (idempotent),
  * retrieval of earned achievements, and season reset.
  *
- * Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6
+ * Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 5.3, 5.4
  */
 
 import { connectMongoDB } from "@/lib/db/mongodb";
@@ -14,6 +14,7 @@ import {
   type EarnedAchievementDocument,
 } from "@/models/achievement.model";
 import { RaceResultModel } from "@/models/race-result.model";
+import { RaceModel } from "@/models/race.model";
 import { setOnAchievementCheckCallback } from "@/services/race-result.service";
 import type { CreateAchievementInput } from "@/lib/validations/achievement";
 
@@ -37,23 +38,30 @@ export class AchievementService {
   }
 
   /**
-   * Evaluate achievement thresholds for a person in a season and award if met.
-   * This is idempotent - the unique compound index on {achievementId, personId, seasonId}
+   * Evaluate achievement thresholds for a person in a league-season and award if met.
+   * This is idempotent - the unique compound index on {achievementId, personId, seasonId, leagueId}
    * prevents duplicate awards.
    *
+   * Achievement progress is tracked per league-season: only race results from the specified
+   * league-season contribute to threshold evaluation.
+   *
+   * Requirement 5.3: Track Achievement progress within the scope of a single League_Season
+   * Requirement 5.4: Award Achievement within the scope of the applicable League_Season
    * Requirement 7.2: Award achievement when completed races meets threshold
-   * Requirement 7.4: Prevent awarding same achievement more than once per person per season
+   * Requirement 7.4: Prevent awarding same achievement more than once per person per league-season
    */
   async checkAndAward(
     personId: string,
-    seasonId: string
+    seasonId: string,
+    leagueId: string
   ): Promise<EarnedAchievementDocument[]> {
     await connectMongoDB();
 
-    // Count completed races for this person in this season
+    // Count completed races for this person in this league-season only
     const racesCompleted = await RaceResultModel.countDocuments({
       racerId: personId,
       seasonId,
+      leagueId,
     });
 
     // Fetch all achievements
@@ -77,6 +85,7 @@ export class AchievementService {
         const earned = await EarnedAchievementModel.create({
           achievementId: achievement._id,
           personId,
+          leagueId,
           seasonId,
           earnedAt: new Date(),
           racesAtTime: racesCompleted,
@@ -135,22 +144,35 @@ export class AchievementService {
  * Wire the AchievementService into the RaceResultService callback
  * so achievements are checked automatically after race results are entered.
  *
+ * Retrieves leagueId from the race to scope achievement checking to the league-season.
  * This works alongside the existing standings recalculation callback.
  */
 export function wireAchievementCheck(): void {
   const achievementService = new AchievementService();
 
   setOnAchievementCheckCallback((_raceId: string, seasonId: string) => {
-    // Get all racers who had results entered for this race, then check achievements
-    RaceResultModel.find({ raceId: _raceId, seasonId })
-      .then((results) => {
-        const uniqueRacerIds = [
-          ...new Set(results.map((r) => r.racerId.toString())),
-        ];
-        return Promise.all(
-          uniqueRacerIds.map((racerId) =>
-            achievementService.checkAndAward(racerId, seasonId)
-          )
+    // Retrieve leagueId from the race, then check achievements scoped to league-season
+    RaceModel.findById(_raceId)
+      .then((race) => {
+        if (!race) {
+          console.error(
+            `[AchievementService] Race "${_raceId}" not found, skipping achievement check`
+          );
+          return [];
+        }
+        const leagueId = race.leagueId.toString();
+
+        return RaceResultModel.find({ raceId: _raceId, seasonId }).then(
+          (results) => {
+            const uniqueRacerIds = [
+              ...new Set(results.map((r) => r.racerId.toString())),
+            ];
+            return Promise.all(
+              uniqueRacerIds.map((racerId) =>
+                achievementService.checkAndAward(racerId, seasonId, leagueId)
+              )
+            );
+          }
         );
       })
       .catch((error) => {

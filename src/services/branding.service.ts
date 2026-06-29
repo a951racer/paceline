@@ -1,12 +1,18 @@
 /**
  * BrandingService - Business logic for managing league branding configuration.
+ * Reads and writes branding from the League document's embedded branding subdocument.
  * Handles retrieval, update, logo upload, and color validation.
  * Uses an in-memory cache with TTL (placeholder for Redis) for performance.
  *
- * Requirements: 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 19.7, 19.8, 19.9
+ * Requirements: 11.1, 11.2, 11.3, 11.4, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 19.7, 19.8, 19.9
  */
 
 import { connectMongoDB } from "@/lib/db/mongodb";
+import {
+  LeagueModel,
+  type LeagueDocument,
+  type LeagueBrandingSubdoc,
+} from "@/models/league.model";
 import {
   BrandingConfigurationModel,
   type BrandingConfigurationDocument,
@@ -29,12 +35,12 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 
 /** In-memory cache entry (placeholder for Redis) */
 interface CacheEntry {
-  data: BrandingConfigurationDocument;
+  data: LeagueBrandingSubdoc;
   expiresAt: number;
 }
 
-/** Simple in-memory cache - will be replaced by Redis when available */
-let brandingCache: CacheEntry | null = null;
+/** Simple in-memory cache keyed by leagueId - will be replaced by Redis when available */
+const brandingCache: Map<string, CacheEntry> = new Map();
 
 /** Data for updating branding configuration */
 export interface UpdateBrandingData {
@@ -58,46 +64,51 @@ export interface UploadFile {
 
 export class BrandingService {
   /**
-   * Get the current branding configuration.
-   * Returns from cache if available and not expired, otherwise fetches from DB.
+   * Get branding configuration for a specific league.
+   * Returns from cache if available and not expired, otherwise fetches from League document.
    *
+   * Requirement 11.1: Associate a Branding_Configuration with each League
+   * Requirement 11.4: Apply branding of the league whose standings are displayed
    * Requirement 19.1: Display league name on Landing_Page, Navigation_Bar, and public pages
    * Requirement 19.5: Apply changes immediately without restart or redeployment
    */
-  async get(): Promise<BrandingConfigurationDocument | null> {
+  async get(leagueId: string): Promise<LeagueBrandingSubdoc | null> {
     // Check in-memory cache first
-    if (brandingCache && brandingCache.expiresAt > Date.now()) {
-      return brandingCache.data;
+    const cached = brandingCache.get(leagueId);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
     }
 
     await connectMongoDB();
 
-    // BrandingConfiguration is a singleton - there's only one document
-    const branding = await BrandingConfigurationModel.findOne();
+    const league = await LeagueModel.findById(leagueId).select("branding");
 
-    if (branding) {
+    if (league && league.branding) {
       // Update cache
-      brandingCache = {
-        data: branding,
+      brandingCache.set(leagueId, {
+        data: league.branding,
         expiresAt: Date.now() + CACHE_TTL_MS,
-      };
+      });
+      return league.branding;
     }
 
-    return branding;
+    return null;
   }
 
   /**
-   * Update branding configuration with validation.
+   * Update branding configuration for a specific league with validation.
+   * Writes to the League document's embedded branding subdocument.
    * Validates exactly 3 main colors and 1-2 accent colors.
    * Invalidates cache after update.
    *
+   * Requirement 11.2: Apply branding configuration to the Active_League_Context
    * Requirement 19.3: Store and apply 3 main colors to primary UI elements
    * Requirement 19.4: Store and apply 1-2 accent colors to secondary UI elements
    * Requirement 19.5: Apply change immediately (cache invalidation)
    * Requirement 19.6: Validate exactly 3 main colors
    * Requirement 19.7: Validate 1 or 2 accent colors
    */
-  async update(data: UpdateBrandingData): Promise<BrandingConfigurationDocument> {
+  async update(leagueId: string, data: UpdateBrandingData): Promise<LeagueBrandingSubdoc> {
     await connectMongoDB();
 
     // Validate colors
@@ -131,26 +142,42 @@ export class BrandingService {
       );
     }
 
-    // Upsert the single branding document
-    const branding = await BrandingConfigurationModel.findOneAndUpdate(
-      {},
+    const brandingData: LeagueBrandingSubdoc = {
+      leagueName: data.leagueName.trim(),
+      logos: data.logos,
+      mainColors: data.mainColors,
+      accentColors: data.accentColors,
+    };
+
+    // Update the League document's embedded branding subdocument
+    const league = await LeagueModel.findByIdAndUpdate(
+      leagueId,
       {
         $set: {
-          leagueName: data.leagueName.trim(),
-          logos: data.logos,
-          mainColors: data.mainColors,
-          accentColors: data.accentColors,
-          updatedAt: new Date(),
-          updatedBy: data.updatedBy,
+          branding: brandingData,
         },
       },
-      { upsert: true, returnDocument: "after", runValidators: true }
+      { returnDocument: "after", runValidators: true }
     );
 
-    // Invalidate cache so next get() fetches fresh data
-    brandingCache = null;
+    if (!league) {
+      throw new Error(`League with id "${leagueId}" not found`);
+    }
 
-    return branding!;
+    // Invalidate cache so next get() fetches fresh data
+    brandingCache.delete(leagueId);
+
+    return league.branding;
+  }
+
+  /**
+   * @deprecated Use get(leagueId) instead. This method reads from the standalone branding collection
+   * which is deprecated in favor of the League document's embedded branding subdocument.
+   * Retained for backward compatibility during migration.
+   */
+  async getLegacy(): Promise<BrandingConfigurationDocument | null> {
+    await connectMongoDB();
+    return BrandingConfigurationModel.findOne();
   }
 
   /**
@@ -223,6 +250,6 @@ export class BrandingService {
    * Clear the branding cache. Useful for testing.
    */
   clearCache(): void {
-    brandingCache = null;
+    brandingCache.clear();
   }
 }

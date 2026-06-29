@@ -15,12 +15,14 @@ const awardService = new AwardService();
 
 const updateNominationSchema = z.object({
   action: z.enum(["approve", "reject"]),
+  leagueId: z.string().min(1, "League ID is required").optional(),
 });
 
 const handlePut: AuthenticatedHandler = async (request, context) => {
   try {
     const url = new URL(request.url);
     const nominationId = url.pathname.split("/").at(-1)!;
+    const leagueIdParam = url.searchParams.get("leagueId");
 
     const body = await request.json();
     const parsed = updateNominationSchema.safeParse(body);
@@ -37,11 +39,23 @@ const handlePut: AuthenticatedHandler = async (request, context) => {
       );
     }
 
-    const { action } = parsed.data;
+    const { action, leagueId: bodyLeagueId } = parsed.data;
+    const leagueId = bodyLeagueId || leagueIdParam;
 
     if (action === "approve") {
+      if (!leagueId) {
+        return NextResponse.json(
+          {
+            status: 400,
+            code: "LEAGUE_REQUIRED",
+            message: "leagueId is required for nomination approval",
+          },
+          { status: 400 }
+        );
+      }
       const assignedAward = await awardService.approveNomination(
         nominationId,
+        leagueId,
         context.userId
       );
       return NextResponse.json({ data: assignedAward }, { status: 200 });

@@ -24,6 +24,9 @@ export interface CreatePersonData {
   email: string;
   phone?: string;
   roles?: Role[];
+  securityRoles?: string[];
+  personTypes?: string[];
+  leagueIds?: string[];
   category?: Category;
   usaCyclingLicense?: string;
   organizationIds?: string[];
@@ -38,6 +41,9 @@ export interface UpdatePersonData {
   category?: Category;
   usaCyclingLicense?: string;
   organizationIds?: string[];
+  leagueIds?: string[];
+  securityRoles?: string[];
+  personTypes?: string[];
   isRegistered?: boolean;
 }
 

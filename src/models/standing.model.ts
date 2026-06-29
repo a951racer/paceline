@@ -11,6 +11,7 @@ export interface StandingResultSubdoc {
 
 /** Mongoose document interface for Standing */
 export interface StandingDocument extends Document {
+  leagueId: mongoose.Types.ObjectId;
   competitionId: mongoose.Types.ObjectId;
   seasonId: mongoose.Types.ObjectId;
   racerId: mongoose.Types.ObjectId;
@@ -35,6 +36,7 @@ const StandingResultSchema = new Schema(
 
 const StandingSchema = new Schema<StandingDocument>(
   {
+    leagueId: { type: Schema.Types.ObjectId, required: true, ref: "League" },
     competitionId: {
       type: Schema.Types.ObjectId,
       ref: "Competition",
@@ -57,6 +59,7 @@ const StandingSchema = new Schema<StandingDocument>(
   { timestamps: false }
 );
 
+StandingSchema.index({ leagueId: 1, competitionId: 1, seasonId: 1, position: 1 });
 StandingSchema.index({ competitionId: 1, seasonId: 1, position: 1 });
 StandingSchema.index({ racerId: 1, seasonId: 1 });
 StandingSchema.index({ category: 1 });
@@ -76,6 +79,7 @@ export interface TeamMemberResultSubdoc {
 
 /** Mongoose document interface for TeamStanding */
 export interface TeamStandingDocument extends Document {
+  leagueId: mongoose.Types.ObjectId;
   competitionId: mongoose.Types.ObjectId;
   seasonId: mongoose.Types.ObjectId;
   organizationId: mongoose.Types.ObjectId;
@@ -97,6 +101,7 @@ const TeamMemberResultSchema = new Schema(
 
 const TeamStandingSchema = new Schema<TeamStandingDocument>(
   {
+    leagueId: { type: Schema.Types.ObjectId, required: true, ref: "League" },
     competitionId: {
       type: Schema.Types.ObjectId,
       ref: "Competition",
@@ -117,6 +122,7 @@ const TeamStandingSchema = new Schema<TeamStandingDocument>(
   { timestamps: false }
 );
 
+TeamStandingSchema.index({ leagueId: 1, competitionId: 1, seasonId: 1, position: 1 });
 TeamStandingSchema.index({ competitionId: 1, seasonId: 1, position: 1 });
 TeamStandingSchema.index({ organizationId: 1, seasonId: 1 });
 

@@ -5,13 +5,14 @@
 
 import jwt, { JsonWebTokenError, TokenExpiredError } from "jsonwebtoken";
 import type { StringValue } from "ms";
-import type { Role } from "@/types";
+import type { Role, AdminScope } from "@/types";
 
 /** JWT token payload containing user identity and roles */
 export interface JwtPayload {
   userId: string;
   email: string;
   roles: Role[];
+  adminScope?: AdminScope;
 }
 
 /** Decoded JWT payload including standard JWT claims */
@@ -136,6 +137,7 @@ export function refreshTokens(refreshToken: string): TokenPair {
     userId: decoded.userId,
     email: decoded.email,
     roles: decoded.roles,
+    adminScope: decoded.adminScope,
   };
 
   return generateTokenPair(payload);

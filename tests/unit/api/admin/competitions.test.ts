@@ -71,29 +71,39 @@ describe("GET /api/admin/competitions", () => {
     ];
     mockCompetitionList.mockResolvedValue(mockCompetitions);
 
-    const req = createRequest("http://localhost/api/admin/competitions", "GET");
+    const req = createRequest("http://localhost/api/admin/competitions?leagueId=league1", "GET");
     const res = await GET(req);
     const data = await res.json();
 
     expect(res.status).toBe(200);
     expect(data.data).toEqual(mockCompetitions);
-    expect(mockCompetitionList).toHaveBeenCalledWith(undefined);
+    expect(mockCompetitionList).toHaveBeenCalledWith({ leagueId: "league1", seasonId: undefined });
   });
 
   it("passes seasonId query parameter to service", async () => {
     mockCompetitionList.mockResolvedValue([]);
 
-    const req = createRequest("http://localhost/api/admin/competitions?seasonId=s1", "GET");
+    const req = createRequest("http://localhost/api/admin/competitions?leagueId=league1&seasonId=s1", "GET");
     const res = await GET(req);
 
     expect(res.status).toBe(200);
-    expect(mockCompetitionList).toHaveBeenCalledWith("s1");
+    expect(mockCompetitionList).toHaveBeenCalledWith({ leagueId: "league1", seasonId: "s1" });
+  });
+
+  it("passes leagueId query parameter to service", async () => {
+    mockCompetitionList.mockResolvedValue([]);
+
+    const req = createRequest("http://localhost/api/admin/competitions?leagueId=league1", "GET");
+    const res = await GET(req);
+
+    expect(res.status).toBe(200);
+    expect(mockCompetitionList).toHaveBeenCalledWith({ leagueId: "league1", seasonId: undefined });
   });
 
   it("returns 500 on internal error", async () => {
     mockCompetitionList.mockRejectedValue(new Error("DB connection failed"));
 
-    const req = createRequest("http://localhost/api/admin/competitions", "GET");
+    const req = createRequest("http://localhost/api/admin/competitions?leagueId=league1", "GET");
     const res = await GET(req);
     const data = await res.json();
 
@@ -112,9 +122,9 @@ describe("POST /api/admin/competitions", () => {
       type: "individual",
       scoringMethod: { type: "points", pointsTable: { "1": 25, "2": 20, "3": 16 } },
     };
-    mockCompetitionCreate.mockResolvedValue({ _id: "c-new", ...competitionData, isActive: true });
+    mockCompetitionCreate.mockResolvedValue({ _id: "c-new", ...competitionData, leagueId: "league1", isActive: true });
 
-    const req = createRequest("http://localhost/api/admin/competitions", "POST", competitionData);
+    const req = createRequest("http://localhost/api/admin/competitions?leagueId=league1", "POST", competitionData);
     const res = await POST(req);
     const data = await res.json();
 
@@ -123,7 +133,7 @@ describe("POST /api/admin/competitions", () => {
   });
 
   it("returns 400 for missing required fields", async () => {
-    const req = createRequest("http://localhost/api/admin/competitions", "POST", { name: "Only name" });
+    const req = createRequest("http://localhost/api/admin/competitions?leagueId=league1", "POST", { name: "Only name" });
     const res = await POST(req);
     const data = await res.json();
 
@@ -132,7 +142,7 @@ describe("POST /api/admin/competitions", () => {
   });
 
   it("returns 400 for invalid scoring method type", async () => {
-    const req = createRequest("http://localhost/api/admin/competitions", "POST", {
+    const req = createRequest("http://localhost/api/admin/competitions?leagueId=league1", "POST", {
       name: "Bad Competition",
       seasonId: "s1",
       type: "individual",
@@ -148,7 +158,7 @@ describe("POST /api/admin/competitions", () => {
   it("returns 500 on internal error", async () => {
     mockCompetitionCreate.mockRejectedValue(new Error("Unexpected error"));
 
-    const req = createRequest("http://localhost/api/admin/competitions", "POST", {
+    const req = createRequest("http://localhost/api/admin/competitions?leagueId=league1", "POST", {
       name: "Competition",
       seasonId: "s1",
       type: "individual",

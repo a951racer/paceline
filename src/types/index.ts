@@ -5,13 +5,34 @@
 
 // --- Enums and Literal Types ---
 
+/** Reference data type discriminator for league-scoped configurable values */
+export type ReferenceDataType =
+  | "category"
+  | "race_type"
+  | "organization_type"
+  | "person_type";
+
+/** Hardcoded security roles that drive permissions and feature access */
+export type SecurityRole =
+  | "administrator"
+  | "super_administrator"
+  | "league_administrator";
+
 /** Roles a person can hold within the league */
 export type Role =
   | "racer"
   | "volunteer"
   | "mentor"
   | "race_official"
-  | "administrator";
+  | "administrator"
+  | "super_administrator"
+  | "league_administrator";
+
+/** Admin scope for super and league administrators */
+export interface AdminScope {
+  type: "super" | "league";
+  leagueIds?: string[]; // Only for league_administrator
+}
 
 /** Experience-based classification for racers */
 export type Category =
@@ -31,8 +52,8 @@ export type RaceType =
   | "gravel"
   | "track";
 
-/** Organization classification */
-export type OrganizationType = "team" | "promoter" | "sponsor" | "other";
+/** Organization classification (dynamically validated against league reference data) */
+export type OrganizationType = string;
 
 /** Status of a race */
 export type RaceStatus =
@@ -61,6 +82,20 @@ export type ComputationMethod = "most_improved" | "biggest_mover" | "custom";
 
 // --- Interfaces ---
 
+/** A single reference data entry (category, race type, org type, or person type) scoped to a league */
+export interface ReferenceDataItem {
+  _id: string;
+  key: string;
+  label: string;
+  description?: string;
+  sortOrder: number;
+  type: ReferenceDataType;
+  leagueId: string;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 /** Category change history entry */
 export interface CategoryChange {
   from: Category | null;
@@ -78,11 +113,18 @@ export interface Person {
   };
   email: string;
   phone?: string;
-  roles: Role[];
+  /** @deprecated Use `securityRoles` and `personTypes` instead. Kept for backward compatibility during migration. */
+  roles?: Role[];
+  /** Hardcoded security roles that drive permissions and feature access */
+  securityRoles: SecurityRole[];
+  /** League-scoped person type reference data keys (e.g., ["racer", "volunteer"]) */
+  personTypes: string[];
+  adminScope?: AdminScope;
   category?: Category;
   categoryHistory: CategoryChange[];
   usaCyclingLicense?: string;
   organizationIds: string[];
+  leagueIds: string[];
   passwordHash?: string;
   authProvider?: AuthProvider;
   authProviderId?: string;
@@ -106,6 +148,7 @@ export interface Organization {
 export interface Season {
   _id: string;
   name: string;
+  leagueId: string;
   startDate: Date;
   endDate: Date;
   isActive: boolean;
@@ -126,8 +169,9 @@ export interface Race {
   name: string;
   date: Date;
   location: RaceLocation;
-  raceType: RaceType;
-  categories: Category[];
+  raceType: string;
+  categories: string[];
+  leagueId: string;
   seasonId: string;
   competitionIds: string[];
   officialIds: string[];
@@ -142,6 +186,7 @@ export interface RaceResult {
   _id: string;
   raceId: string;
   racerId: string;
+  leagueId: string;
   seasonId: string;
   category: Category;
   position: number;
@@ -154,12 +199,12 @@ export interface RaceResult {
 /** Eligibility criteria for a competition */
 export interface EligibilityCriteria {
   racerCriteria?: {
-    categories?: Category[];
+    categories?: string[];
     firstYearOnly?: boolean;
     minRaces?: number;
   };
   raceCriteria?: {
-    raceTypes?: RaceType[];
+    raceTypes?: string[];
     specificRaceIds?: string[];
   };
 }
@@ -176,6 +221,7 @@ export interface Competition {
   _id: string;
   name: string;
   description?: string;
+  leagueId: string;
   seasonId: string;
   type: CompetitionType;
   scoringMethod: ScoringMethod;
@@ -196,6 +242,7 @@ export interface StandingResult {
 /** Individual standing record */
 export interface Standing {
   _id: string;
+  leagueId: string;
   competitionId: string;
   seasonId: string;
   racerId: string;
@@ -218,6 +265,7 @@ export interface TeamMemberResult {
 /** Team standing record */
 export interface TeamStanding {
   _id: string;
+  leagueId: string;
   competitionId: string;
   seasonId: string;
   organizationId: string;
@@ -246,6 +294,7 @@ export interface EarnedAchievement {
   _id: string;
   achievementId: string;
   personId: string;
+  leagueId: string;
   seasonId: string;
   earnedAt: Date;
   racesAtTime: number;
@@ -266,6 +315,7 @@ export interface AssignedAward {
   _id: string;
   awardId: string;
   recipientId: string;
+  leagueId: string;
   seasonId: string;
   assignedAt: Date;
   source: NominationType;
@@ -306,9 +356,50 @@ export interface EarnedRecognition {
   _id: string;
   recognitionId: string;
   personId: string;
+  leagueId: string;
   seasonId: string;
   computedValue: number;
   earnedAt: Date;
+}
+
+/** Entity type for enrollment */
+export type EnrollmentEntityType = "person" | "organization";
+
+/** Enrollment record - associates a person or organization with a league-season */
+export interface Enrollment {
+  _id: string;
+  entityType: EnrollmentEntityType;
+  entityId: string;
+  leagueId: string;
+  seasonId: string;
+  enrolledAt: Date;
+  enrolledBy: string;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** League branding subdocument */
+export interface LeagueBranding {
+  leagueName: string;
+  logos: {
+    square: string;
+    horizontal: string;
+    vertical: string;
+  };
+  mainColors: [string, string, string];
+  accentColors: string[];
+}
+
+/** League record */
+export interface League {
+  _id: string;
+  name: string;
+  description?: string;
+  isActive: boolean;
+  branding: LeagueBranding;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 /** Branding configuration */

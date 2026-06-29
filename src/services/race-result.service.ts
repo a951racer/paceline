@@ -13,6 +13,7 @@ import {
 } from "@/models/race-result.model";
 import { PersonModel } from "@/models/person.model";
 import { RaceModel } from "@/models/race.model";
+import { EnrollmentService } from "@/services/enrollment.service";
 import type { Category } from "@/types";
 
 /** Data for entering a single race result */
@@ -95,13 +96,15 @@ export class RaceResultService {
   ): Promise<EnterResultsResponse> {
     await connectMongoDB();
 
-    // Get the race to determine seasonId
+    // Get the race to determine seasonId and leagueId
     const race = await RaceModel.findById(raceId);
     if (!race) {
       throw new Error(`Race with id "${raceId}" not found`);
     }
 
     const seasonId = race.seasonId.toString();
+    const leagueId = race.leagueId.toString();
+    const enrollmentService = new EnrollmentService();
     const successful: RaceResultDocument[] = [];
     const errors: ResultEntryError[] = [];
 
@@ -116,11 +119,31 @@ export class RaceResultService {
         continue;
       }
 
-      // 2. Attempt to insert (unique index handles duplicate rejection)
+      // 2. Validate racer enrollment in the league-season (Req 9.6)
+      const isEnrolled = await enrollmentService.isPersonEnrolled(
+        result.racerId,
+        leagueId,
+        seasonId
+      );
+      if (!isEnrolled) {
+        const error = new Error(
+          `Racer "${result.racerId}" is not enrolled in the league-season associated with this race`
+        );
+        (error as Error & { code: string; statusCode: number }).code = "NOT_ENROLLED";
+        (error as Error & { code: string; statusCode: number }).statusCode = 422;
+        errors.push({
+          racerId: result.racerId,
+          reason: `Racer "${result.racerId}" is not enrolled in the league-season associated with this race`,
+        });
+        continue;
+      }
+
+      // 3. Attempt to insert (unique index handles duplicate rejection)
       try {
         const raceResult = await RaceResultModel.create({
           raceId,
           racerId: result.racerId,
+          leagueId,
           seasonId,
           category: result.category,
           position: result.position,
@@ -152,12 +175,12 @@ export class RaceResultService {
       }
     }
 
-    // 3. Trigger standings recalculation if any results were entered (Req 5.3)
+    // 4. Trigger standings recalculation if any results were entered (Req 5.3)
     if (successful.length > 0 && onResultsEntered) {
       onResultsEntered(raceId, seasonId);
     }
 
-    // 4. Trigger achievement check if any results were entered (Req 7.2)
+    // 5. Trigger achievement check if any results were entered (Req 7.2)
     if (successful.length > 0 && onAchievementCheck) {
       onAchievementCheck(raceId, seasonId);
     }

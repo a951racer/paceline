@@ -44,6 +44,7 @@ export const AchievementModel: Model<AchievementDocument> =
 export interface EarnedAchievementDocument extends Document {
   achievementId: mongoose.Types.ObjectId;
   personId: mongoose.Types.ObjectId;
+  leagueId: mongoose.Types.ObjectId;
   seasonId: mongoose.Types.ObjectId;
   earnedAt: Date;
   racesAtTime: number;
@@ -57,6 +58,7 @@ const EarnedAchievementSchema = new Schema<EarnedAchievementDocument>(
       required: true,
     },
     personId: { type: Schema.Types.ObjectId, ref: "Person", required: true },
+    leagueId: { type: Schema.Types.ObjectId, required: true, ref: "League" },
     seasonId: { type: Schema.Types.ObjectId, ref: "Season", required: true },
     earnedAt: { type: Date, required: true, default: Date.now },
     racesAtTime: { type: Number, required: true, min: 0 },
@@ -64,9 +66,9 @@ const EarnedAchievementSchema = new Schema<EarnedAchievementDocument>(
   { timestamps: false }
 );
 
-// Unique compound index: a person can earn a specific achievement only once per season
+// Unique compound index: a person can earn a specific achievement only once per league-season
 EarnedAchievementSchema.index(
-  { achievementId: 1, personId: 1, seasonId: 1 },
+  { achievementId: 1, personId: 1, seasonId: 1, leagueId: 1 },
   { unique: true }
 );
 

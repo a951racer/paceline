@@ -54,6 +54,14 @@ jest.mock("@/middleware/rate-limit", () => ({
   withRateLimit: () => (handler: Function) => handler,
 }));
 
+const mockValidateKeys = jest.fn();
+
+jest.mock("@/services/reference-data.service", () => ({
+  ReferenceDataService: jest.fn().mockImplementation(() => ({
+    validateKeys: mockValidateKeys,
+  })),
+}));
+
 import { GET, POST } from "@/app/api/admin/races/route";
 import {
   GET as GET_BY_ID,
@@ -85,7 +93,7 @@ describe("GET /api/admin/races", () => {
     ];
     mockRaceList.mockResolvedValue(mockRaces);
 
-    const req = createRequest("http://localhost/api/admin/races", "GET");
+    const req = createRequest("http://localhost/api/admin/races?leagueId=league-1", "GET");
     const res = await GET(req);
     const data = await res.json();
 
@@ -96,7 +104,7 @@ describe("GET /api/admin/races", () => {
   it("returns 500 on internal error", async () => {
     mockRaceList.mockRejectedValue(new Error("DB error"));
 
-    const req = createRequest("http://localhost/api/admin/races", "GET");
+    const req = createRequest("http://localhost/api/admin/races?leagueId=league-1", "GET");
     const res = await GET(req);
     const data = await res.json();
 
@@ -106,7 +114,10 @@ describe("GET /api/admin/races", () => {
 });
 
 describe("POST /api/admin/races", () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockValidateKeys.mockResolvedValue(true);
+  });
 
   it("returns 201 on successful creation", async () => {
     const raceData = {
@@ -118,7 +129,7 @@ describe("POST /api/admin/races", () => {
     };
     mockRaceCreate.mockResolvedValue({ _id: "r-new", ...raceData });
 
-    const req = createRequest("http://localhost/api/admin/races", "POST", raceData);
+    const req = createRequest("http://localhost/api/admin/races?leagueId=league-1", "POST", raceData);
     const res = await POST(req);
     const data = await res.json();
 
@@ -127,7 +138,7 @@ describe("POST /api/admin/races", () => {
   });
 
   it("returns 400 for missing required fields", async () => {
-    const req = createRequest("http://localhost/api/admin/races", "POST", { name: "Only name" });
+    const req = createRequest("http://localhost/api/admin/races?leagueId=league-1", "POST", { name: "Only name" });
     const res = await POST(req);
     const data = await res.json();
 
@@ -135,13 +146,9 @@ describe("POST /api/admin/races", () => {
     expect(data.code).toBe("VALIDATION_ERROR");
   });
 
-  it("returns 400 for invalid race type", async () => {
-    mockRaceCreate.mockRejectedValue(
-      new Error('Invalid race type "marathon". Valid types are: crit, time_trial, road_race, cyclocross, gravel, track')
-    );
-
+  it("returns 400 when leagueId query param is missing", async () => {
     const req = createRequest("http://localhost/api/admin/races", "POST", {
-      name: "Bad Race",
+      name: "Race",
       date: "2024-07-15",
       location: { name: "Somewhere" },
       raceType: "crit",
@@ -151,7 +158,7 @@ describe("POST /api/admin/races", () => {
     const data = await res.json();
 
     expect(res.status).toBe(400);
-    expect(data.code).toBe("INVALID_RACE_TYPE");
+    expect(data.code).toBe("LEAGUE_REQUIRED");
   });
 });
 

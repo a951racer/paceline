@@ -136,10 +136,9 @@ describe("Organization Model", () => {
     ).rejects.toThrow();
   });
 
-  it("should reject invalid type", async () => {
-    await expect(
-      OrganizationModel.create({ name: "Bad Type", type: "invalid" })
-    ).rejects.toThrow();
+  it("should accept any type string (enum removed, validated at runtime against reference data)", async () => {
+    const org = await OrganizationModel.create({ name: "Bad Type", type: "invalid" });
+    expect(org.type).toBe("invalid");
   });
 });
 
@@ -150,6 +149,7 @@ describe("Season Model", () => {
       startDate: new Date("2024-03-01"),
       endDate: new Date("2024-10-31"),
       isActive: true,
+      leagueId: new mongoose.Types.ObjectId(),
     });
 
     expect(season.name).toBe("2024 Season");
@@ -162,6 +162,7 @@ describe("Season Model", () => {
       name: "Future Season",
       startDate: new Date("2025-03-01"),
       endDate: new Date("2025-10-31"),
+      leagueId: new mongoose.Types.ObjectId(),
     });
 
     expect(season.isActive).toBe(false);
@@ -181,6 +182,7 @@ describe("Race Model", () => {
       },
       raceType: "crit",
       categories: ["cat3", "cat4"],
+      leagueId: new mongoose.Types.ObjectId(),
       seasonId,
       status: "scheduled",
     });
@@ -191,17 +193,17 @@ describe("Race Model", () => {
     expect(race.categories).toContain("cat3");
   });
 
-  it("should reject invalid raceType", async () => {
+  it("should accept any raceType string (enum removed, validated at runtime against reference data)", async () => {
     const seasonId = new mongoose.Types.ObjectId();
-    await expect(
-      RaceModel.create({
-        name: "Bad Race",
-        date: new Date(),
-        location: { name: "Somewhere" },
-        raceType: "invalid_type",
-        seasonId,
-      })
-    ).rejects.toThrow();
+    const race = await RaceModel.create({
+      name: "Custom Race",
+      date: new Date(),
+      location: { name: "Somewhere" },
+      raceType: "custom_type",
+      leagueId: new mongoose.Types.ObjectId(),
+      seasonId,
+    });
+    expect(race.raceType).toBe("custom_type");
   });
 });
 
@@ -215,6 +217,7 @@ describe("RaceResult Model", () => {
       raceId,
       racerId,
       seasonId,
+      leagueId: new mongoose.Types.ObjectId(),
       category: "cat3",
       position: 1,
       finishTime: 3600000,
@@ -225,6 +228,7 @@ describe("RaceResult Model", () => {
         raceId,
         racerId,
         seasonId,
+        leagueId: new mongoose.Types.ObjectId(),
         category: "cat3",
         position: 2,
         finishTime: 3700000,
@@ -239,6 +243,7 @@ describe("Competition Model", () => {
     const competition = await CompetitionModel.create({
       name: "Overall League Champion",
       seasonId,
+      leagueId: new mongoose.Types.ObjectId(),
       type: "individual",
       scoringMethod: {
         type: "points",
@@ -274,11 +279,13 @@ describe("Achievement and EarnedAchievement Models", () => {
     const achievementId = new mongoose.Types.ObjectId();
     const personId = new mongoose.Types.ObjectId();
     const seasonId = new mongoose.Types.ObjectId();
+    const leagueId = new mongoose.Types.ObjectId();
 
     await EarnedAchievementModel.create({
       achievementId,
       personId,
       seasonId,
+      leagueId,
       earnedAt: new Date(),
       racesAtTime: 5,
     });
@@ -288,6 +295,7 @@ describe("Achievement and EarnedAchievement Models", () => {
         achievementId,
         personId,
         seasonId,
+        leagueId,
         earnedAt: new Date(),
         racesAtTime: 6,
       })
@@ -396,6 +404,7 @@ describe("Standing and TeamStanding Models", () => {
       competitionId: new mongoose.Types.ObjectId(),
       seasonId: new mongoose.Types.ObjectId(),
       racerId: new mongoose.Types.ObjectId(),
+      leagueId: new mongoose.Types.ObjectId(),
       category: "cat3",
       totalPoints: 75,
       totalRaces: 5,
@@ -426,6 +435,7 @@ describe("Standing and TeamStanding Models", () => {
       competitionId: new mongoose.Types.ObjectId(),
       seasonId: new mongoose.Types.ObjectId(),
       organizationId: new mongoose.Types.ObjectId(),
+      leagueId: new mongoose.Types.ObjectId(),
       totalPoints: 150,
       totalRaces: 10,
       position: 1,

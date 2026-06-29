@@ -9,6 +9,7 @@ import { SeasonService } from "@/services/season.service";
 let mongoServer: MongoMemoryServer;
 let service: RaceService;
 let seasonService: SeasonService;
+const defaultLeagueId = new mongoose.Types.ObjectId().toString();
 
 beforeAll(async () => {
   mongoServer = await MongoMemoryServer.create();
@@ -34,6 +35,7 @@ afterEach(async () => {
 async function createSeason2024() {
   return seasonService.create({
     name: "2024 Season",
+    leagueId: defaultLeagueId,
     startDate: new Date("2024-01-01"),
     endDate: new Date("2024-12-31"),
   });
@@ -60,6 +62,7 @@ describe("RaceService", () => {
         date: new Date("2024-06-15"),
         location: { name: "City Center", address: "123 Main St" },
         raceType: "crit",
+        leagueId: defaultLeagueId,
         categories: ["cat3", "cat4"],
         seasonId: season._id.toString(),
       });
@@ -71,6 +74,7 @@ describe("RaceService", () => {
       expect(race.raceType).toBe("crit");
       expect(race.categories).toEqual(["cat3", "cat4"]);
       expect(race.seasonId.toString()).toBe(season._id.toString());
+      expect(race.leagueId.toString()).toBe(defaultLeagueId);
       expect(race.status).toBe("scheduled");
       expect(race.officialIds).toEqual([]);
       expect(race.volunteerIds).toEqual([]);
@@ -78,7 +82,7 @@ describe("RaceService", () => {
       expect(race.updatedAt).toBeInstanceOf(Date);
     });
 
-    it("should auto-associate race with season by date range (Req 4.6)", async () => {
+    it("should auto-associate race with season by date range within league (Req 4.6)", async () => {
       const season = await createSeason2024();
 
       const race = await service.create({
@@ -86,6 +90,7 @@ describe("RaceService", () => {
         date: new Date("2024-07-20"),
         location: { name: "Mountain Pass" },
         raceType: "road_race",
+        leagueId: defaultLeagueId,
       });
 
       expect(race.seasonId.toString()).toBe(season._id.toString());
@@ -98,22 +103,24 @@ describe("RaceService", () => {
           date: new Date("2030-01-01"),
           location: { name: "Nowhere" },
           raceType: "crit",
+          leagueId: defaultLeagueId,
         })
       ).rejects.toThrow("No season found containing the race date");
     });
 
-    it("should reject invalid raceType (Req 4.4)", async () => {
+    it("should accept any string as raceType (validation against reference data is done at API layer)", async () => {
       const season = await createSeason2024();
 
-      await expect(
-        service.create({
-          name: "Bad Race",
-          date: new Date("2024-05-01"),
-          location: { name: "Somewhere" },
-          raceType: "invalid_type" as any,
-          seasonId: season._id.toString(),
-        })
-      ).rejects.toThrow('Invalid race type "invalid_type"');
+      const race = await service.create({
+        name: "Custom Race",
+        date: new Date("2024-05-01"),
+        location: { name: "Somewhere" },
+        raceType: "custom_type",
+        leagueId: defaultLeagueId,
+        seasonId: season._id.toString(),
+      });
+
+      expect(race.raceType).toBe("custom_type");
     });
 
     it("should allow all valid race types (Req 4.4)", async () => {
@@ -133,6 +140,7 @@ describe("RaceService", () => {
           date: new Date("2024-05-01"),
           location: { name: "Track" },
           raceType,
+          leagueId: defaultLeagueId,
           seasonId: season._id.toString(),
         });
         expect(race.raceType).toBe(raceType);
@@ -147,6 +155,7 @@ describe("RaceService", () => {
         date: new Date("2024-08-01"),
         location: { name: "Velodrome" },
         raceType: "track",
+        leagueId: defaultLeagueId,
         categories: ["cat1", "cat2", "cat3", "cat4", "cat5", "beginner"],
         seasonId: season._id.toString(),
       });
@@ -166,6 +175,7 @@ describe("RaceService", () => {
           coordinates: { lat: 40.7128, lng: -74.006 },
         },
         raceType: "gravel",
+        leagueId: defaultLeagueId,
         seasonId: season._id.toString(),
       });
 
@@ -182,6 +192,7 @@ describe("RaceService", () => {
         date: new Date("2024-06-01"),
         location: { name: "Old Venue" },
         raceType: "crit",
+        leagueId: defaultLeagueId,
         seasonId: season._id.toString(),
       });
 
@@ -204,21 +215,22 @@ describe("RaceService", () => {
       ).rejects.toThrow(`Race with id "${fakeId}" not found`);
     });
 
-    it("should reject invalid raceType on update", async () => {
+    it("should accept any string as raceType on update (validation against reference data is done at API layer)", async () => {
       const season = await createSeason2024();
       const race = await service.create({
         name: "Race",
         date: new Date("2024-06-01"),
         location: { name: "Venue" },
         raceType: "crit",
+        leagueId: defaultLeagueId,
         seasonId: season._id.toString(),
       });
 
-      await expect(
-        service.update(race._id.toString(), {
-          raceType: "bad_type" as any,
-        })
-      ).rejects.toThrow('Invalid race type "bad_type"');
+      const updated = await service.update(race._id.toString(), {
+        raceType: "custom_type",
+      });
+
+      expect(updated.raceType).toBe("custom_type");
     });
   });
 
@@ -230,6 +242,7 @@ describe("RaceService", () => {
         date: new Date("2024-06-01"),
         location: { name: "Track" },
         raceType: "crit",
+        leagueId: defaultLeagueId,
         seasonId: season._id.toString(),
       });
 
@@ -270,6 +283,7 @@ describe("RaceService", () => {
         date: new Date("2024-06-01"),
         location: { name: "Track" },
         raceType: "crit",
+        leagueId: defaultLeagueId,
         seasonId: season._id.toString(),
         officialIds: [person1._id.toString()],
       });
@@ -289,6 +303,7 @@ describe("RaceService", () => {
         date: new Date("2024-06-01"),
         location: { name: "Track" },
         raceType: "crit",
+        leagueId: defaultLeagueId,
         seasonId: season._id.toString(),
       });
 
@@ -317,6 +332,7 @@ describe("RaceService", () => {
         date: new Date("2024-06-01"),
         location: { name: "Track" },
         raceType: "crit",
+        leagueId: defaultLeagueId,
         seasonId: season._id.toString(),
       });
 
@@ -351,6 +367,7 @@ describe("RaceService", () => {
         date: new Date("2024-06-01"),
         location: { name: "Track" },
         raceType: "crit",
+        leagueId: defaultLeagueId,
         seasonId: season._id.toString(),
         volunteerIds: [person1._id.toString()],
       });
@@ -370,6 +387,7 @@ describe("RaceService", () => {
         date: new Date("2024-06-01"),
         location: { name: "Track" },
         raceType: "crit",
+        leagueId: defaultLeagueId,
         seasonId: season._id.toString(),
       });
 
@@ -394,6 +412,7 @@ describe("RaceService", () => {
     it("should return scheduled races with date >= today sorted by date asc", async () => {
       const season = await seasonService.create({
         name: "Future Season",
+        leagueId: defaultLeagueId,
         startDate: new Date("2030-01-01"),
         endDate: new Date("2030-12-31"),
       });
@@ -404,6 +423,7 @@ describe("RaceService", () => {
         date: new Date("2030-07-15"),
         location: { name: "Track B" },
         raceType: "road_race",
+        leagueId: defaultLeagueId,
         seasonId: season._id.toString(),
       });
       await service.create({
@@ -411,6 +431,7 @@ describe("RaceService", () => {
         date: new Date("2030-03-01"),
         location: { name: "Track A" },
         raceType: "crit",
+        leagueId: defaultLeagueId,
         seasonId: season._id.toString(),
       });
       // Completed race (should not appear)
@@ -419,6 +440,7 @@ describe("RaceService", () => {
         date: new Date("2030-09-01"),
         location: { name: "Done" },
         raceType: "track",
+        leagueId: defaultLeagueId,
         seasonId: season._id.toString(),
         status: "completed",
       });
@@ -433,6 +455,7 @@ describe("RaceService", () => {
     it("should not return past races", async () => {
       const season = await seasonService.create({
         name: "Past Season",
+        leagueId: defaultLeagueId,
         startDate: new Date("2020-01-01"),
         endDate: new Date("2020-12-31"),
       });
@@ -442,6 +465,7 @@ describe("RaceService", () => {
         date: new Date("2020-06-15"),
         location: { name: "Old Track" },
         raceType: "crit",
+        leagueId: defaultLeagueId,
         seasonId: season._id.toString(),
       });
 
@@ -463,6 +487,7 @@ describe("RaceService", () => {
         date: new Date("2024-06-01"),
         location: { name: "Track" },
         raceType: "crit",
+        leagueId: defaultLeagueId,
         seasonId: season._id.toString(),
       });
 
@@ -480,7 +505,7 @@ describe("RaceService", () => {
   });
 
   describe("list", () => {
-    it("should return all races sorted by date descending", async () => {
+    it("should return races for a specific league sorted by date descending", async () => {
       const season = await createSeason2024();
 
       await service.create({
@@ -488,6 +513,7 @@ describe("RaceService", () => {
         date: new Date("2024-02-01"),
         location: { name: "A" },
         raceType: "crit",
+        leagueId: defaultLeagueId,
         seasonId: season._id.toString(),
       });
       await service.create({
@@ -495,6 +521,7 @@ describe("RaceService", () => {
         date: new Date("2024-11-01"),
         location: { name: "B" },
         raceType: "road_race",
+        leagueId: defaultLeagueId,
         seasonId: season._id.toString(),
       });
       await service.create({
@@ -502,10 +529,11 @@ describe("RaceService", () => {
         date: new Date("2024-06-01"),
         location: { name: "C" },
         raceType: "gravel",
+        leagueId: defaultLeagueId,
         seasonId: season._id.toString(),
       });
 
-      const races = await service.list();
+      const races = await service.list(defaultLeagueId);
 
       expect(races).toHaveLength(3);
       expect(races[0].name).toBe("Late Race");
@@ -513,9 +541,45 @@ describe("RaceService", () => {
       expect(races[2].name).toBe("Early Race");
     });
 
-    it("should return empty array when no races exist", async () => {
-      const races = await service.list();
+    it("should return empty array when no races exist for the league", async () => {
+      const races = await service.list(defaultLeagueId);
       expect(races).toHaveLength(0);
+    });
+
+    it("should only return races for the specified league (Req 9.4)", async () => {
+      const otherLeagueId = new mongoose.Types.ObjectId().toString();
+      const season = await createSeason2024();
+      const otherSeason = await seasonService.create({
+        name: "Other Season",
+        leagueId: otherLeagueId,
+        startDate: new Date("2024-01-01"),
+        endDate: new Date("2024-12-31"),
+      });
+
+      await service.create({
+        name: "League A Race",
+        date: new Date("2024-06-01"),
+        location: { name: "Track A" },
+        raceType: "crit",
+        leagueId: defaultLeagueId,
+        seasonId: season._id.toString(),
+      });
+      await service.create({
+        name: "League B Race",
+        date: new Date("2024-06-01"),
+        location: { name: "Track B" },
+        raceType: "crit",
+        leagueId: otherLeagueId,
+        seasonId: otherSeason._id.toString(),
+      });
+
+      const racesA = await service.list(defaultLeagueId);
+      const racesB = await service.list(otherLeagueId);
+
+      expect(racesA).toHaveLength(1);
+      expect(racesA[0].name).toBe("League A Race");
+      expect(racesB).toHaveLength(1);
+      expect(racesB[0].name).toBe("League B Race");
     });
   });
 });

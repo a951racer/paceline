@@ -17,7 +17,6 @@ const OrganizationSchema = new Schema<OrganizationDocument>(
     type: {
       type: String,
       required: true,
-      enum: ["team", "promoter", "sponsor", "other"],
     },
     description: { type: String },
     memberIds: {

@@ -1,34 +1,25 @@
 /**
- * RaceService - Business logic for managing races in the league.
+ * RaceService - Business logic for managing races scoped to a league.
  * Handles CRUD operations, official/volunteer assignment, season association,
  * and upcoming race queries.
  *
- * Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6
+ * Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 9.1, 9.4, 5.8
  */
 
+import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/db/mongodb";
 import { RaceModel, type RaceDocument } from "@/models/race.model";
 import { PersonModel } from "@/models/person.model";
-import { SeasonService } from "@/services/season.service";
-import type { RaceType, Category, RaceStatus, RaceLocation } from "@/types";
-
-/** Valid race types for validation */
-const VALID_RACE_TYPES: RaceType[] = [
-  "crit",
-  "time_trial",
-  "road_race",
-  "cyclocross",
-  "gravel",
-  "track",
-];
+import type { RaceStatus, RaceLocation } from "@/types";
 
 /** Data for creating a new race */
 export interface CreateRaceData {
   name: string;
   date: Date;
   location: RaceLocation;
-  raceType: RaceType;
-  categories?: Category[];
+  raceType: string;
+  leagueId: string;
+  categories?: string[];
   seasonId?: string;
   competitionIds?: string[];
   officialIds?: string[];
@@ -41,38 +32,35 @@ export interface UpdateRaceData {
   name?: string;
   date?: Date;
   location?: RaceLocation;
-  raceType?: RaceType;
-  categories?: Category[];
+  raceType?: string;
+  categories?: string[];
   seasonId?: string;
   competitionIds?: string[];
   status?: RaceStatus;
 }
 
 export class RaceService {
-  private seasonService: SeasonService;
-
   constructor() {
-    this.seasonService = new SeasonService();
+    // SeasonService dependency removed; will be re-added in Task 5.2 with league-scoping
   }
 
   /**
-   * Create a new race with season association.
+   * Create a new race with season association, scoped to a league.
    * If no seasonId is provided, automatically associates with the season
-   * whose date range contains the race date.
+   * whose date range contains the race date within the specified league.
    *
    * Requirement 4.1: Create a Race with name, date, location, Race_Type, and Season
    * Requirement 4.6: Associate a Race with a Season by date range or explicit assignment
+   * Requirement 9.1: Race creation requires leagueId
    */
   async create(data: CreateRaceData): Promise<RaceDocument> {
     await connectMongoDB();
 
-    this.validateRaceType(data.raceType);
-
     let seasonId = data.seasonId;
 
     if (!seasonId) {
-      // Auto-associate by finding which season's date range contains the race date
-      seasonId = await this.findSeasonByDate(data.date);
+      // Auto-associate by finding which season's date range contains the race date within the league
+      seasonId = await this.findSeasonByDate(data.date, data.leagueId);
     }
 
     const race = await RaceModel.create({
@@ -80,6 +68,7 @@ export class RaceService {
       date: data.date,
       location: data.location,
       raceType: data.raceType,
+      leagueId: new mongoose.Types.ObjectId(data.leagueId),
       categories: data.categories ?? [],
       seasonId,
       competitionIds: data.competitionIds ?? [],
@@ -101,10 +90,6 @@ export class RaceService {
     data: UpdateRaceData
   ): Promise<RaceDocument> {
     await connectMongoDB();
-
-    if (data.raceType) {
-      this.validateRaceType(data.raceType);
-    }
 
     const race = await RaceModel.findByIdAndUpdate(
       id,
@@ -175,17 +160,23 @@ export class RaceService {
 
   /**
    * Get upcoming scheduled races (status 'scheduled', date >= today),
-   * sorted by date ascending.
+   * sorted by date ascending. Optionally filtered by leagueId.
    */
-  async getUpcoming(): Promise<RaceDocument[]> {
+  async getUpcoming(leagueId?: string): Promise<RaceDocument[]> {
     await connectMongoDB();
 
     const now = new Date();
 
-    const races = await RaceModel.find({
+    const query: Record<string, unknown> = {
       status: "scheduled",
       date: { $gte: now },
-    }).sort({ date: 1 });
+    };
+
+    if (leagueId) {
+      query.leagueId = new mongoose.Types.ObjectId(leagueId);
+    }
+
+    const races = await RaceModel.find(query).sort({ date: 1 });
 
     return races;
   }
@@ -202,23 +193,30 @@ export class RaceService {
   }
 
   /**
-   * List all races, sorted by date descending (most recent first).
+   * List all races for a specific league, sorted by date descending (most recent first).
+   *
+   * Requirement 9.4: Filter race listing by league context
    */
-  async list(): Promise<RaceDocument[]> {
+  async list(leagueId: string): Promise<RaceDocument[]> {
     await connectMongoDB();
 
-    const races = await RaceModel.find().sort({ date: -1 });
+    const races = await RaceModel.find({
+      leagueId: new mongoose.Types.ObjectId(leagueId),
+    }).sort({ date: -1 });
     return races;
   }
 
   /**
-   * Find the season whose date range contains the given date.
+   * Find the season whose date range contains the given date within the specified league.
    * Throws if no matching season is found.
    *
    * Requirement 4.6: Associate a Race with a Season based on date range
    */
-  private async findSeasonByDate(date: Date): Promise<string> {
-    const seasons = await this.seasonService.list();
+  private async findSeasonByDate(date: Date, leagueId: string): Promise<string> {
+    const { SeasonModel } = await import("@/models/season.model");
+    const seasons = await SeasonModel.find({
+      leagueId: new mongoose.Types.ObjectId(leagueId),
+    }).sort({ startDate: -1 });
 
     const matchingSeason = seasons.find(
       (season) => date >= season.startDate && date <= season.endDate
@@ -231,19 +229,6 @@ export class RaceService {
     }
 
     return matchingSeason._id.toString();
-  }
-
-  /**
-   * Validate that the provided raceType is a valid enum value.
-   *
-   * Requirement 4.4: Support predefined Race_Types
-   */
-  private validateRaceType(raceType: RaceType): void {
-    if (!VALID_RACE_TYPES.includes(raceType)) {
-      throw new Error(
-        `Invalid race type "${raceType}". Valid types are: ${VALID_RACE_TYPES.join(", ")}`
-      );
-    }
   }
 
   /**

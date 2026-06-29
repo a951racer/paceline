@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { Award, Plus, Pencil, Trash2, X } from "lucide-react";
+import { adminFetch } from "@/lib/admin-fetch";
 
 interface Achievement {
   _id: string;
@@ -36,7 +37,7 @@ export default function AdminAchievementsPage() {
   const fetchAchievements = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/admin/achievements");
+      const res = await adminFetch("/api/admin/achievements");
       if (!res.ok) throw new Error("Failed to fetch achievements");
       const json = await res.json();
       setAchievements(json.data || []);
@@ -92,7 +93,7 @@ export default function AdminAchievementsPage() {
         : "/api/admin/achievements";
       const method = editingAchievement ? "PUT" : "POST";
 
-      const res = await fetch(url, {
+      const res = await adminFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -115,7 +116,7 @@ export default function AdminAchievementsPage() {
   const handleDelete = async (achievement: Achievement) => {
     if (!confirm(`Delete achievement "${achievement.name}"?`)) return;
     try {
-      const res = await fetch(`/api/admin/achievements/${achievement._id}`, { method: "DELETE" });
+      const res = await adminFetch(`/api/admin/achievements/${achievement._id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete achievement");
       fetchAchievements();
     } catch (err) {

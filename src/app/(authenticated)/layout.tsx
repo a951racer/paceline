@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthenticatedLayout } from "@/components/layout/authenticated-layout";
+import { useLeagueInit } from "@/hooks/use-league-init";
 
 export default function AuthenticatedRouteLayout({
   children,
@@ -12,6 +13,9 @@ export default function AuthenticatedRouteLayout({
   const router = useRouter();
   const [isChecking, setIsChecking] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  // Initialize league context on auth
+  useLeagueInit();
 
   useEffect(() => {
     const token = localStorage.getItem("accessToken");

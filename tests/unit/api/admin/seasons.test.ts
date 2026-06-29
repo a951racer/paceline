@@ -79,7 +79,7 @@ describe("GET /api/admin/seasons", () => {
     ];
     mockSeasonList.mockResolvedValue(mockSeasons);
 
-    const req = createRequest("http://localhost/api/admin/seasons", "GET");
+    const req = createRequest("http://localhost/api/admin/seasons?leagueId=league-1", "GET");
     const res = await GET(req);
     const data = await res.json();
 
@@ -90,7 +90,7 @@ describe("GET /api/admin/seasons", () => {
   it("returns 500 on internal error", async () => {
     mockSeasonList.mockRejectedValue(new Error("DB connection failed"));
 
-    const req = createRequest("http://localhost/api/admin/seasons", "GET");
+    const req = createRequest("http://localhost/api/admin/seasons?leagueId=league-1", "GET");
     const res = await GET(req);
     const data = await res.json();
 
@@ -106,7 +106,7 @@ describe("POST /api/admin/seasons", () => {
     const seasonData = { name: "2025 Season", startDate: "2025-01-01", endDate: "2025-12-31" };
     mockSeasonCreate.mockResolvedValue({ _id: "s-new", ...seasonData, isActive: false });
 
-    const req = createRequest("http://localhost/api/admin/seasons", "POST", seasonData);
+    const req = createRequest("http://localhost/api/admin/seasons?leagueId=league-1", "POST", seasonData);
     const res = await POST(req);
     const data = await res.json();
 
@@ -115,7 +115,7 @@ describe("POST /api/admin/seasons", () => {
   });
 
   it("returns 400 for missing required fields", async () => {
-    const req = createRequest("http://localhost/api/admin/seasons", "POST", { name: "Only name" });
+    const req = createRequest("http://localhost/api/admin/seasons?leagueId=league-1", "POST", { name: "Only name" });
     const res = await POST(req);
     const data = await res.json();
 
@@ -128,7 +128,7 @@ describe("POST /api/admin/seasons", () => {
       new Error("Season date range overlaps with an existing season. Please choose a non-overlapping date range.")
     );
 
-    const req = createRequest("http://localhost/api/admin/seasons", "POST", {
+    const req = createRequest("http://localhost/api/admin/seasons?leagueId=league-1", "POST", {
       name: "Overlapping",
       startDate: "2024-06-01",
       endDate: "2025-06-01",
@@ -137,7 +137,7 @@ describe("POST /api/admin/seasons", () => {
     const data = await res.json();
 
     expect(res.status).toBe(409);
-    expect(data.code).toBe("SEASON_OVERLAP");
+    expect(data.code).toBe("SEASON_OVERLAP_IN_LEAGUE");
   });
 });
 
@@ -186,6 +186,7 @@ describe("PUT /api/admin/seasons/[seasonId]", () => {
   it("returns 409 when updated dates overlap", async () => {
     mockSeasonGetById.mockResolvedValue({
       _id: "s1",
+      leagueId: { toString: () => "league-1" },
       startDate: new Date("2024-01-01"),
       endDate: new Date("2024-12-31"),
     });
@@ -199,7 +200,7 @@ describe("PUT /api/admin/seasons/[seasonId]", () => {
     const data = await res.json();
 
     expect(res.status).toBe(409);
-    expect(data.code).toBe("SEASON_OVERLAP");
+    expect(data.code).toBe("SEASON_OVERLAP_IN_LEAGUE");
   });
 
   it("returns 404 when season not found", async () => {

@@ -3,6 +3,8 @@
 import React, { useEffect, useState } from "react";
 import { ListOrdered, Plus, Trash2, AlertCircle, CheckCircle2 } from "lucide-react";
 import { useParams } from "next/navigation";
+import { adminFetch } from "@/lib/admin-fetch";
+import { useReferenceData } from "@/hooks/use-reference-data";
 
 interface ResultEntry {
   racerId: string;
@@ -33,6 +35,8 @@ export default function AdminRaceResultsPage() {
   const params = useParams();
   const raceId = params.raceId as string;
 
+  const { activeItems: categoryItems, resolveKey: resolveCategory } = useReferenceData("category");
+
   const [race, setRace] = useState<Race | null>(null);
   const [existingResults, setExistingResults] = useState<ExistingResult[]>([]);
   const [entries, setEntries] = useState<ResultEntry[]>([
@@ -49,14 +53,14 @@ export default function AdminRaceResultsPage() {
       try {
         setLoading(true);
         // Fetch race info
-        const raceRes = await fetch(`/api/admin/races/${raceId}`);
+        const raceRes = await adminFetch(`/api/admin/races/${raceId}`);
         if (raceRes.ok) {
           const raceJson = await raceRes.json();
           setRace(raceJson.data);
         }
 
         // Fetch existing results
-        const resultsRes = await fetch(`/api/admin/races/${raceId}/results`);
+        const resultsRes = await adminFetch(`/api/admin/races/${raceId}/results`);
         if (resultsRes.ok) {
           const resultsJson = await resultsRes.json();
           setExistingResults(resultsJson.data || []);
@@ -71,7 +75,8 @@ export default function AdminRaceResultsPage() {
   }, [raceId]);
 
   const addEntry = () => {
-    setEntries((prev) => [...prev, { racerId: "", category: "cat1", position: "", finishTime: "" }]);
+    const defaultCategory = categoryItems.length > 0 ? categoryItems[0].key : "cat1";
+    setEntries((prev) => [...prev, { racerId: "", category: defaultCategory, position: "", finishTime: "" }]);
   };
 
   const removeEntry = (index: number) => {
@@ -114,7 +119,7 @@ export default function AdminRaceResultsPage() {
     }));
 
     try {
-      const res = await fetch(`/api/admin/races/${raceId}/results`, {
+      const res = await adminFetch(`/api/admin/races/${raceId}/results`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -136,7 +141,7 @@ export default function AdminRaceResultsPage() {
       }
 
       // Refresh existing results
-      const resultsRes = await fetch(`/api/admin/races/${raceId}/results`);
+      const resultsRes = await adminFetch(`/api/admin/races/${raceId}/results`);
       if (resultsRes.ok) {
         const resultsJson = await resultsRes.json();
         setExistingResults(resultsJson.data || []);
@@ -196,7 +201,7 @@ export default function AdminRaceResultsPage() {
                     <tr key={result._id}>
                       <td className="px-4 py-2 font-medium">{result.position}</td>
                       <td className="px-4 py-2 font-mono text-xs">{result.racerId}</td>
-                      <td className="px-4 py-2 capitalize">{result.category}</td>
+                      <td className="px-4 py-2 capitalize">{resolveCategory(result.category)}</td>
                       <td className="px-4 py-2">{result.finishTime.toLocaleString()}</td>
                       <td className="px-4 py-2">{result.points ?? "—"}</td>
                     </tr>
@@ -259,9 +264,15 @@ export default function AdminRaceResultsPage() {
                   onChange={(e) => updateEntry(index, "category", e.target.value)}
                   className="rounded-md border border-[var(--border)] px-2 py-2 text-sm"
                 >
-                  {CATEGORIES.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
+                  {categoryItems.length > 0 ? (
+                    categoryItems.map((c) => (
+                      <option key={c.key} value={c.key}>{c.label}</option>
+                    ))
+                  ) : (
+                    CATEGORIES.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))
+                  )}
                 </select>
                 <input
                   type="number"

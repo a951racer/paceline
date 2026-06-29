@@ -7,6 +7,7 @@ let mongoServer: MongoMemoryServer;
 let service: CompetitionService;
 
 const seasonId = new mongoose.Types.ObjectId().toString();
+const leagueId = new mongoose.Types.ObjectId().toString();
 
 beforeAll(async () => {
   mongoServer = await MongoMemoryServer.create();
@@ -31,6 +32,7 @@ describe("CompetitionService", () => {
       const competition = await service.create({
         name: "Overall League Champion",
         description: "Season-long competition for all racers",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: {
@@ -49,6 +51,7 @@ describe("CompetitionService", () => {
       expect(competition.description).toBe(
         "Season-long competition for all racers"
       );
+      expect(competition.leagueId.toString()).toBe(leagueId);
       expect(competition.seasonId.toString()).toBe(seasonId);
       expect(competition.type).toBe("individual");
       expect(competition.scoringMethod.type).toBe("points");
@@ -66,6 +69,7 @@ describe("CompetitionService", () => {
     it("should default isActive to true", async () => {
       const competition = await service.create({
         name: "Test Competition",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: { type: "points" },
@@ -77,6 +81,7 @@ describe("CompetitionService", () => {
     it("should allow creating inactive competition", async () => {
       const competition = await service.create({
         name: "Inactive Competition",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: { type: "time" },
@@ -89,6 +94,7 @@ describe("CompetitionService", () => {
     it("should default eligibility criteria to empty object if not provided", async () => {
       const competition = await service.create({
         name: "Open Competition",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: { type: "points" },
@@ -100,6 +106,7 @@ describe("CompetitionService", () => {
     it("should create a team competition (Req 6.12)", async () => {
       const competition = await service.create({
         name: "Team Championship",
+        leagueId,
         seasonId,
         type: "team",
         scoringMethod: { type: "points" },
@@ -113,6 +120,7 @@ describe("CompetitionService", () => {
     it("should return true when no eligibility criteria are set (open to all)", async () => {
       const competition = await service.create({
         name: "Open Competition",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: { type: "points" },
@@ -129,6 +137,7 @@ describe("CompetitionService", () => {
     it("should return true when racer's category is in the allowed list (Req 6.15)", async () => {
       const competition = await service.create({
         name: "Rookie Championship",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: { type: "points" },
@@ -150,6 +159,7 @@ describe("CompetitionService", () => {
     it("should return false when racer's category is NOT in the allowed list (Req 6.15)", async () => {
       const competition = await service.create({
         name: "Rookie Championship",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: { type: "points" },
@@ -171,6 +181,7 @@ describe("CompetitionService", () => {
     it("should return true when race type is in the allowed list (Req 6.16)", async () => {
       const competition = await service.create({
         name: "Time Trial Cup",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: { type: "time" },
@@ -192,6 +203,7 @@ describe("CompetitionService", () => {
     it("should return false when race type is NOT in the allowed list (Req 6.16)", async () => {
       const competition = await service.create({
         name: "Time Trial Cup",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: { type: "time" },
@@ -214,6 +226,7 @@ describe("CompetitionService", () => {
       const raceId = new mongoose.Types.ObjectId().toString();
       const competition = await service.create({
         name: "Specific Races Competition",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: { type: "points" },
@@ -237,6 +250,7 @@ describe("CompetitionService", () => {
       const otherRaceId = new mongoose.Types.ObjectId().toString();
       const competition = await service.create({
         name: "Specific Races Competition",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: { type: "points" },
@@ -258,6 +272,7 @@ describe("CompetitionService", () => {
     it("should check both racer and race criteria (both must pass)", async () => {
       const competition = await service.create({
         name: "Restricted Competition",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: { type: "points" },
@@ -299,6 +314,7 @@ describe("CompetitionService", () => {
     it("should accept all racers when firstYearOnly is true (not tracked yet)", async () => {
       const competition = await service.create({
         name: "Rookie Competition",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: { type: "points" },
@@ -320,6 +336,7 @@ describe("CompetitionService", () => {
     it("should not check minRaces at eligibility time", async () => {
       const competition = await service.create({
         name: "Attendance Competition",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: { type: "points" },
@@ -344,6 +361,7 @@ describe("CompetitionService", () => {
     it("should return only active competitions (Req 6.12)", async () => {
       await service.create({
         name: "Active Competition 1",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: { type: "points" },
@@ -352,6 +370,7 @@ describe("CompetitionService", () => {
 
       await service.create({
         name: "Inactive Competition",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: { type: "points" },
@@ -360,6 +379,7 @@ describe("CompetitionService", () => {
 
       await service.create({
         name: "Active Competition 2",
+        leagueId,
         seasonId,
         type: "team",
         scoringMethod: { type: "points" },
@@ -376,6 +396,7 @@ describe("CompetitionService", () => {
     it("should return empty array when no active competitions exist", async () => {
       await service.create({
         name: "Inactive Competition",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: { type: "points" },
@@ -391,6 +412,7 @@ describe("CompetitionService", () => {
     it("should return a competition by ID", async () => {
       const created = await service.create({
         name: "Test Competition",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: { type: "points" },
@@ -413,12 +435,14 @@ describe("CompetitionService", () => {
     it("should return all competitions sorted by name", async () => {
       await service.create({
         name: "Zebra Championship",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: { type: "points" },
       });
       await service.create({
         name: "Alpha Cup",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: { type: "time" },
@@ -436,18 +460,20 @@ describe("CompetitionService", () => {
 
       await service.create({
         name: "Season 1 Competition",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: { type: "points" },
       });
       await service.create({
         name: "Season 2 Competition",
+        leagueId,
         seasonId: otherSeasonId,
         type: "individual",
         scoringMethod: { type: "points" },
       });
 
-      const competitions = await service.list(seasonId);
+      const competitions = await service.list({ seasonId });
 
       expect(competitions).toHaveLength(1);
       expect(competitions[0].name).toBe("Season 1 Competition");
@@ -457,12 +483,61 @@ describe("CompetitionService", () => {
       const competitions = await service.list();
       expect(competitions).toHaveLength(0);
     });
+
+    it("should filter by leagueId when provided (Req 9.2, 9.3)", async () => {
+      const otherLeagueId = new mongoose.Types.ObjectId().toString();
+
+      await service.create({
+        name: "League A Competition",
+        leagueId,
+        seasonId,
+        type: "individual",
+        scoringMethod: { type: "points" },
+      });
+      await service.create({
+        name: "League B Competition",
+        leagueId: otherLeagueId,
+        seasonId,
+        type: "individual",
+        scoringMethod: { type: "points" },
+      });
+
+      const competitions = await service.list({ leagueId });
+
+      expect(competitions).toHaveLength(1);
+      expect(competitions[0].name).toBe("League A Competition");
+    });
+
+    it("should filter by both leagueId and seasonId when provided", async () => {
+      const otherSeasonId = new mongoose.Types.ObjectId().toString();
+
+      await service.create({
+        name: "League Season Match",
+        leagueId,
+        seasonId,
+        type: "individual",
+        scoringMethod: { type: "points" },
+      });
+      await service.create({
+        name: "Same League Other Season",
+        leagueId,
+        seasonId: otherSeasonId,
+        type: "individual",
+        scoringMethod: { type: "points" },
+      });
+
+      const competitions = await service.list({ leagueId, seasonId });
+
+      expect(competitions).toHaveLength(1);
+      expect(competitions[0].name).toBe("League Season Match");
+    });
   });
 
   describe("update", () => {
     it("should update competition fields", async () => {
       const created = await service.create({
         name: "Original Name",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: { type: "points" },
@@ -482,6 +557,7 @@ describe("CompetitionService", () => {
     it("should update scoring method", async () => {
       const created = await service.create({
         name: "Competition",
+        leagueId,
         seasonId,
         type: "individual",
         scoringMethod: { type: "points" },

@@ -3,6 +3,9 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { Flag, Plus, Pencil, Trash2, X, ListOrdered } from "lucide-react";
 import Link from "next/link";
+import { useLeagueStore } from "@/hooks/use-league-store";
+import { adminFetch } from "@/lib/admin-fetch";
+import { useReferenceData } from "@/hooks/use-reference-data";
 
 interface Race {
   _id: string;
@@ -18,18 +21,34 @@ interface Race {
   createdAt: string;
 }
 
-const RACE_TYPES = ["crit", "time_trial", "road_race", "cyclocross", "gravel", "track"];
-const STATUSES = ["scheduled", "in_progress", "completed", "cancelled"];
-const CATEGORIES = ["cat1", "cat2", "cat3", "cat4", "cat5", "beginner"];
+interface Season {
+  _id: string;
+  name: string;
+  status: string;
+}
 
+const STATUSES = ["scheduled", "in_progress", "completed", "cancelled"];
+
+/**
+ * Admin Races Page - Filters races by active league context.
+ * Race creation associates with active league.
+ *
+ * Requirements: 9.1, 9.4
+ */
 export default function AdminRacesPage() {
   const [races, setRaces] = useState<Race[]>([]);
+  const [seasons, setSeasons] = useState<Season[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [editingRace, setEditingRace] = useState<Race | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+
+  const activeLeagueId = useLeagueStore((state) => state.activeLeagueId);
+
+  const { activeItems: raceTypes, isLoading: raceTypesLoading, resolveKey: resolveRaceType } = useReferenceData("race_type");
+  const { activeItems: categories, isLoading: categoriesLoading } = useReferenceData("category");
 
   // Form state
   const [formData, setFormData] = useState({
@@ -39,6 +58,7 @@ export default function AdminRacesPage() {
     locationAddress: "",
     raceType: "crit",
     categories: [] as string[],
+    seasonId: "",
     status: "scheduled",
   });
   const [formError, setFormError] = useState<string | null>(null);
@@ -47,7 +67,7 @@ export default function AdminRacesPage() {
   const fetchRaces = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/admin/races");
+      const res = await adminFetch("/api/admin/races");
       if (!res.ok) throw new Error("Failed to fetch races");
       const json = await res.json();
       let data = json.data || [];
@@ -59,11 +79,25 @@ export default function AdminRacesPage() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, typeFilter]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLeagueId, statusFilter, typeFilter]);
+
+  const fetchSeasons = useCallback(async () => {
+    try {
+      const res = await adminFetch("/api/admin/seasons");
+      if (!res.ok) return;
+      const json = await res.json();
+      setSeasons(json.data || []);
+    } catch {
+      // Non-critical — season list just won't populate
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLeagueId]);
 
   useEffect(() => {
     fetchRaces();
-  }, [fetchRaces]);
+    fetchSeasons();
+  }, [fetchRaces, fetchSeasons]);
 
   const openCreateModal = () => {
     setEditingRace(null);
@@ -72,8 +106,9 @@ export default function AdminRacesPage() {
       date: "",
       locationName: "",
       locationAddress: "",
-      raceType: "crit",
+      raceType: raceTypes.length > 0 ? raceTypes[0].key : "",
       categories: [],
+      seasonId: "",
       status: "scheduled",
     });
     setFormError(null);
@@ -89,6 +124,7 @@ export default function AdminRacesPage() {
       locationAddress: race.location?.address || "",
       raceType: race.raceType,
       categories: race.categories || [],
+      seasonId: race.seasonId || "",
       status: race.status,
     });
     setFormError(null);
@@ -115,14 +151,16 @@ export default function AdminRacesPage() {
       location: { name: formData.locationName, address: formData.locationAddress || undefined },
       raceType: formData.raceType,
       categories: formData.categories,
+      seasonId: formData.seasonId,
       status: formData.status,
+      leagueId: activeLeagueId,
     };
 
     try {
-      const url = editingRace ? `/api/admin/races/${editingRace._id}` : "/api/admin/races";
+      const baseUrl = editingRace ? `/api/admin/races/${editingRace._id}` : "/api/admin/races";
       const method = editingRace ? "PUT" : "POST";
 
-      const res = await fetch(url, {
+      const res = await adminFetch(baseUrl, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -145,7 +183,7 @@ export default function AdminRacesPage() {
   const handleDelete = async (race: Race) => {
     if (!confirm(`Delete race "${race.name}"?`)) return;
     try {
-      const res = await fetch(`/api/admin/races/${race._id}`, { method: "DELETE" });
+      const res = await adminFetch(`/api/admin/races/${race._id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete race");
       fetchRaces();
     } catch (err) {
@@ -188,8 +226,8 @@ export default function AdminRacesPage() {
           className="rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
         >
           <option value="">All Types</option>
-          {RACE_TYPES.map((t) => (
-            <option key={t} value={t}>{t.replace("_", " ")}</option>
+          {raceTypes.map((t) => (
+            <option key={t.key} value={t.key}>{t.label}</option>
           ))}
         </select>
       </div>
@@ -231,7 +269,7 @@ export default function AdminRacesPage() {
                     <td className="px-4 py-3 font-medium">{race.name}</td>
                     <td className="px-4 py-3">{race.date ? new Date(race.date).toLocaleDateString() : "—"}</td>
                     <td className="px-4 py-3">{race.location?.name || "—"}</td>
-                    <td className="px-4 py-3 capitalize">{race.raceType?.replace("_", " ") || "—"}</td>
+                    <td className="px-4 py-3 capitalize">{resolveRaceType(race.raceType) || "—"}</td>
                     <td className="px-4 py-3">
                       <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                         race.status === "completed" ? "bg-green-100 text-green-700" :
@@ -317,6 +355,23 @@ export default function AdminRacesPage() {
                 />
               </div>
 
+              <div>
+                <label className="block text-sm font-medium mb-1">Season</label>
+                <select
+                  required
+                  value={formData.seasonId}
+                  onChange={(e) => setFormData((p) => ({ ...p, seasonId: e.target.value }))}
+                  className="w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm"
+                >
+                  <option value="">Select a season</option>
+                  {seasons.map((s) => (
+                    <option key={s._id} value={s._id}>
+                      {s.name} {s.status === "active" ? "(active)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium mb-1">Location Name</label>
@@ -346,10 +401,15 @@ export default function AdminRacesPage() {
                     value={formData.raceType}
                     onChange={(e) => setFormData((p) => ({ ...p, raceType: e.target.value }))}
                     className="w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm"
+                    disabled={raceTypesLoading}
                   >
-                    {RACE_TYPES.map((t) => (
-                      <option key={t} value={t}>{t.replace("_", " ")}</option>
-                    ))}
+                    {raceTypesLoading ? (
+                      <option value="">Loading...</option>
+                    ) : (
+                      raceTypes.map((t) => (
+                        <option key={t.key} value={t.key}>{t.label}</option>
+                      ))
+                    )}
                   </select>
                 </div>
                 <div>
@@ -368,22 +428,26 @@ export default function AdminRacesPage() {
 
               <div>
                 <label className="block text-sm font-medium mb-2">Categories</label>
-                <div className="flex flex-wrap gap-2">
-                  {CATEGORIES.map((cat) => (
-                    <label
-                      key={cat}
-                      className="flex items-center gap-1.5 rounded-md border border-[var(--border)] px-3 py-1.5 text-sm cursor-pointer hover:bg-[var(--muted,#f3f4f6)]"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={formData.categories.includes(cat)}
-                        onChange={() => handleCategoryToggle(cat)}
-                        className="rounded"
-                      />
-                      <span className="capitalize">{cat}</span>
-                    </label>
-                  ))}
-                </div>
+                {categoriesLoading ? (
+                  <p className="text-sm text-[var(--muted-foreground,#6b7280)]">Loading categories...</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {categories.map((cat) => (
+                      <label
+                        key={cat.key}
+                        className="flex items-center gap-1.5 rounded-md border border-[var(--border)] px-3 py-1.5 text-sm cursor-pointer hover:bg-[var(--muted,#f3f4f6)]"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={formData.categories.includes(cat.key)}
+                          onChange={() => handleCategoryToggle(cat.key)}
+                          className="rounded"
+                        />
+                        <span>{cat.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-3 pt-2">

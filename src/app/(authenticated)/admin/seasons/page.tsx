@@ -2,16 +2,25 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { Calendar, Plus, Pencil, Trash2, X, Power, PowerOff } from "lucide-react";
+import { useLeagueStore } from "@/hooks/use-league-store";
+import { adminFetch } from "@/lib/admin-fetch";
 
 interface Season {
   _id: string;
   name: string;
   startDate: string;
   endDate: string;
+  leagueId?: string;
   isActive: boolean;
   createdAt: string;
 }
 
+/**
+ * Admin Seasons Page - Shows only seasons for the active league.
+ * Season creation form defaults to active league but allows override.
+ *
+ * Requirements: 2.1, 2.7
+ */
 export default function AdminSeasonsPage() {
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [loading, setLoading] = useState(true);
@@ -19,15 +28,18 @@ export default function AdminSeasonsPage() {
   const [showModal, setShowModal] = useState(false);
   const [editingSeason, setEditingSeason] = useState<Season | null>(null);
 
+  const activeLeagueId = useLeagueStore((state) => state.activeLeagueId);
+  const availableLeagues = useLeagueStore((state) => state.availableLeagues);
+
   // Form state
-  const [formData, setFormData] = useState({ name: "", startDate: "", endDate: "" });
+  const [formData, setFormData] = useState({ name: "", startDate: "", endDate: "", leagueId: "" });
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const fetchSeasons = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/admin/seasons");
+      const res = await adminFetch("/api/admin/seasons");
       if (!res.ok) throw new Error("Failed to fetch seasons");
       const json = await res.json();
       setSeasons(json.data || []);
@@ -36,7 +48,8 @@ export default function AdminSeasonsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLeagueId]);
 
   useEffect(() => {
     fetchSeasons();
@@ -44,7 +57,7 @@ export default function AdminSeasonsPage() {
 
   const openCreateModal = () => {
     setEditingSeason(null);
-    setFormData({ name: "", startDate: "", endDate: "" });
+    setFormData({ name: "", startDate: "", endDate: "", leagueId: activeLeagueId || "" });
     setFormError(null);
     setShowModal(true);
   };
@@ -55,6 +68,7 @@ export default function AdminSeasonsPage() {
       name: season.name,
       startDate: season.startDate ? season.startDate.slice(0, 10) : "",
       endDate: season.endDate ? season.endDate.slice(0, 10) : "",
+      leagueId: season.leagueId || activeLeagueId || "",
     });
     setFormError(null);
     setShowModal(true);
@@ -72,10 +86,13 @@ export default function AdminSeasonsPage() {
     };
 
     try {
-      const url = editingSeason ? `/api/admin/seasons/${editingSeason._id}` : "/api/admin/seasons";
+      const leagueParam = formData.leagueId ? `?leagueId=${formData.leagueId}` : "";
+      const baseUrl = editingSeason
+        ? `/api/admin/seasons/${editingSeason._id}${leagueParam}`
+        : `/api/admin/seasons${leagueParam}`;
       const method = editingSeason ? "PUT" : "POST";
 
-      const res = await fetch(url, {
+      const res = await adminFetch(baseUrl, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -98,7 +115,7 @@ export default function AdminSeasonsPage() {
   const handleDelete = async (season: Season) => {
     if (!confirm(`Delete season "${season.name}"?`)) return;
     try {
-      const res = await fetch(`/api/admin/seasons/${season._id}`, { method: "DELETE" });
+      const res = await adminFetch(`/api/admin/seasons/${season._id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete season");
       fetchSeasons();
     } catch (err) {
@@ -108,7 +125,7 @@ export default function AdminSeasonsPage() {
 
   const handleActivate = async (season: Season) => {
     try {
-      const res = await fetch(`/api/admin/seasons/${season._id}/activate`, { method: "POST" });
+      const res = await adminFetch(`/api/admin/seasons/${season._id}/activate`, { method: "POST" });
       if (!res.ok) {
         const json = await res.json();
         throw new Error(json.message || "Failed to activate season");
@@ -121,7 +138,7 @@ export default function AdminSeasonsPage() {
 
   const handleDeactivate = async (season: Season) => {
     try {
-      const res = await fetch(`/api/admin/seasons/${season._id}`, {
+      const res = await adminFetch(`/api/admin/seasons/${season._id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isActive: false }),
@@ -260,6 +277,23 @@ export default function AdminSeasonsPage() {
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">League</label>
+                <select
+                  required
+                  value={formData.leagueId}
+                  onChange={(e) => setFormData((p) => ({ ...p, leagueId: e.target.value }))}
+                  className="w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm"
+                >
+                  <option value="">Select a league</option>
+                  {availableLeagues.map((league) => (
+                    <option key={league.id} value={league.id}>
+                      {league.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium mb-1">Name</label>
                 <input

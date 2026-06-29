@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { Trophy, Plus, Pencil, Trash2, X } from "lucide-react";
+import { adminFetch } from "@/lib/admin-fetch";
 
 interface Competition {
   _id: string;
@@ -58,7 +59,7 @@ export default function AdminCompetitionsPage() {
   const fetchCompetitions = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/admin/competitions");
+      const res = await adminFetch("/api/admin/competitions");
       if (!res.ok) throw new Error("Failed to fetch competitions");
       const json = await res.json();
       setCompetitions(json.data || []);
@@ -141,7 +142,7 @@ export default function AdminCompetitionsPage() {
         : "/api/admin/competitions";
       const method = editingCompetition ? "PUT" : "POST";
 
-      const res = await fetch(url, {
+      const res = await adminFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -164,7 +165,7 @@ export default function AdminCompetitionsPage() {
   const handleDelete = async (comp: Competition) => {
     if (!confirm(`Delete competition "${comp.name}"?`)) return;
     try {
-      const res = await fetch(`/api/admin/competitions/${comp._id}`, { method: "DELETE" });
+      const res = await adminFetch(`/api/admin/competitions/${comp._id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete competition");
       fetchCompetitions();
     } catch (err) {

@@ -148,7 +148,9 @@ export function withAdmin(
       return createUnauthorizedResponse();
     }
 
-    if (!decoded.roles.includes("administrator")) {
+    const adminRoles = ["administrator", "super_administrator", "league_administrator"];
+    const hasAdminRole = decoded.roles.some((role) => adminRoles.includes(role));
+    if (!hasAdminRole) {
       return createForbiddenResponse();
     }
 

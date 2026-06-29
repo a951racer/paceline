@@ -17,6 +17,20 @@ const brandingService = new BrandingService();
 
 const handlePut: AuthenticatedHandler = async (request, { userId }) => {
   try {
+    const url = new URL(request.url);
+    const leagueId = url.searchParams.get("leagueId");
+
+    if (!leagueId) {
+      return NextResponse.json(
+        {
+          status: 400,
+          code: "LEAGUE_REQUIRED",
+          message: "leagueId query parameter is required",
+        },
+        { status: 400 }
+      );
+    }
+
     const body = await request.json();
     const parsed = updateBrandingSchema.safeParse(body);
 
@@ -32,7 +46,7 @@ const handlePut: AuthenticatedHandler = async (request, { userId }) => {
       );
     }
 
-    const branding = await brandingService.update({
+    const branding = await brandingService.update(leagueId, {
       leagueName: parsed.data.leagueName,
       logos: parsed.data.logos,
       mainColors: parsed.data.mainColors,
@@ -59,6 +73,17 @@ const handlePut: AuthenticatedHandler = async (request, { userId }) => {
             message: error.message,
           },
           { status: 400 }
+        );
+      }
+
+      if (error.message.includes("not found")) {
+        return NextResponse.json(
+          {
+            status: 404,
+            code: "LEAGUE_NOT_FOUND",
+            message: error.message,
+          },
+          { status: 404 }
         );
       }
     }

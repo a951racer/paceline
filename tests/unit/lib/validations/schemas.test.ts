@@ -84,10 +84,18 @@ describe("Zod Validation Schemas", () => {
       expect(result.success).toBe(false);
     });
 
-    it("rejects organization with invalid type", () => {
+    it("accepts organization with any non-empty type string (runtime validation against reference data)", () => {
       const result = createOrganizationSchema.safeParse({
         name: "Fast Wheels",
         type: "invalid_type",
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects organization with empty type", () => {
+      const result = createOrganizationSchema.safeParse({
+        name: "Fast Wheels",
+        type: "",
       });
       expect(result.success).toBe(false);
     });
@@ -153,6 +161,7 @@ describe("Zod Validation Schemas", () => {
         date: "2024-04-15",
         location: { name: "City Park" },
         raceType: "crit",
+        leagueId: "league123",
         seasonId: "abc123",
       });
       expect(result.success).toBe(true);
@@ -164,17 +173,31 @@ describe("Zod Validation Schemas", () => {
         date: "2024-04-15",
         location: { name: "" },
         raceType: "crit",
+        leagueId: "league123",
         seasonId: "abc123",
       });
       expect(result.success).toBe(false);
     });
 
-    it("rejects race with invalid raceType", () => {
+    it("accepts race with any non-empty raceType string (runtime validation against reference data)", () => {
       const result = createRaceSchema.safeParse({
         name: "Spring Crit",
         date: "2024-04-15",
         location: { name: "City Park" },
         raceType: "marathon",
+        leagueId: "league123",
+        seasonId: "abc123",
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects race with empty raceType", () => {
+      const result = createRaceSchema.safeParse({
+        name: "Spring Crit",
+        date: "2024-04-15",
+        location: { name: "City Park" },
+        raceType: "",
+        leagueId: "league123",
         seasonId: "abc123",
       });
       expect(result.success).toBe(false);
@@ -186,6 +209,7 @@ describe("Zod Validation Schemas", () => {
         date: "2024-04-15",
         location: { name: "City Park" },
         raceType: "crit",
+        leagueId: "league123",
         seasonId: "abc123",
         status: "running",
       });
@@ -251,6 +275,7 @@ describe("Zod Validation Schemas", () => {
     it("validates a valid competition creation", () => {
       const result = createCompetitionSchema.safeParse({
         name: "Overall League Championship",
+        leagueId: "league1",
         seasonId: "season1",
         type: "individual",
         scoringMethod: { type: "points", pointsTable: { "1": 25, "2": 20 } },
@@ -264,6 +289,7 @@ describe("Zod Validation Schemas", () => {
     it("rejects competition with invalid type", () => {
       const result = createCompetitionSchema.safeParse({
         name: "Bad Competition",
+        leagueId: "league1",
         seasonId: "season1",
         type: "pairs",
         scoringMethod: { type: "points" },
@@ -274,6 +300,7 @@ describe("Zod Validation Schemas", () => {
     it("rejects competition with invalid scoring method type", () => {
       const result = createCompetitionSchema.safeParse({
         name: "Bad Competition",
+        leagueId: "league1",
         seasonId: "season1",
         type: "individual",
         scoringMethod: { type: "laps" },

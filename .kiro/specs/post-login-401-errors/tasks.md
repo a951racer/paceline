@@ -1,0 +1,112 @@
+# Implementation Plan
+
+- [x] 1. Write bug condition exploration test
+  - **Property 1: Bug Condition** - Admin Fetch Missing Authorization Header
+  - **CRITICAL**: This test MUST FAIL on unfixed code - failure confirms the bug exists
+  - **DO NOT attempt to fix the test or the code when it fails**
+  - **NOTE**: This test encodes the expected behavior - it will validate the fix when it passes after implementation
+  - **GOAL**: Surface counterexamples that demonstrate admin page fetch calls lack the Authorization header
+  - **Scoped PBT Approach**: Scope the property to admin API URL patterns (`/api/admin/*`) with a valid token in localStorage
+  - Create test file: `tests/property/admin-fetch-bug-condition.spec.ts`
+  - Use `fast-check` to generate arbitrary admin URL paths (awards, races, people, seasons, competitions, organizations, enrollments, leagues, branding, results, achievements, nominations)
+  - Use `fast-check` to generate arbitrary RequestInit options (GET, POST, PUT, DELETE methods with optional headers and body)
+  - Mock `localStorage.getItem("accessToken")` to return a valid JWT token string
+  - Mock `global.fetch` to capture outgoing request headers
+  - Test property: For all generated admin URLs and options, calling `adminFetch(url, options)` results in `request.headers.get("authorization") = "Bearer <token>"`
+  - Bug Condition from design: `input.url.startsWith("/api/admin/") AND input.localStorage.getItem("accessToken") != null AND input.headers.get("authorization") = null`
+  - Expected Behavior: `adminFetch` automatically attaches `Authorization: Bearer <token>` header
+  - Run test on UNFIXED code (adminFetch does not exist yet, so test will fail to import)
+  - **EXPECTED OUTCOME**: Test FAILS (this is correct - it proves the bug exists because no adminFetch utility exists)
+  - Document that the current code uses plain `fetch()` without Authorization headers
+  - Mark task complete when test is written, run, and failure is documented
+  - _Requirements: 1.1, 1.2, 2.1, 2.2_
+
+- [x] 2. Write preservation property tests (BEFORE implementing fix)
+  - **Property 2: Preservation** - Non-Admin Fetch Behavior Unchanged
+  - **IMPORTANT**: Follow observation-first methodology
+  - Create test file: `tests/property/admin-fetch-preservation.spec.ts`
+  - Observe: Public API calls (e.g., `/api/standings`, `/api/branding`) work without auth headers on unfixed code
+  - Observe: The `useLeagueInit` fetch to `/api/user/leagues` works with its manual Authorization header on unfixed code
+  - Observe: When no `accessToken` exists in localStorage, no API calls are made (redirect to login)
+  - Write property-based test using `fast-check`:
+    - Generate arbitrary non-admin URLs (paths that do NOT start with `/api/admin/`)
+    - Assert that `adminFetch` is NOT used for these paths (they use plain `fetch()` and remain unchanged)
+    - Generate arbitrary admin URLs with NO token in localStorage
+    - Assert that `adminFetch` gracefully handles missing token (does not crash, allows middleware 401 flow)
+  - Write property-based test for header merging preservation:
+    - Generate arbitrary headers (Content-Type, Accept, custom headers) passed by caller
+    - Assert that `adminFetch` preserves ALL caller-provided headers alongside the added Authorization header
+  - Write property-based test for leagueId handling:
+    - Generate arbitrary admin URLs with/without existing query parameters
+    - When `useLeagueStore.getState().activeLeagueId` is set, assert `leagueId` param is appended correctly
+    - When `activeLeagueId` is null, assert NO `leagueId` param is added
+    - Assert existing query parameters in the URL are preserved
+  - Verify tests pass on UNFIXED code where possible (header merging and URL handling are testable against the utility's contract)
+  - **EXPECTED OUTCOME**: Tests PASS once adminFetch is implemented (these define the preservation contract)
+  - Mark task complete when tests are written and the preservation contract is documented
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
+
+- [x] 3. Fix for post-login 401 errors on admin pages
+
+  - [x] 3.1 Create `adminFetch` utility function
+    - Create new file: `src/lib/admin-fetch.ts`
+    - Implement `adminFetch(url: string, options?: RequestInit): Promise<Response>` function
+    - Read JWT token from `localStorage.getItem("accessToken")`
+    - Attach `Authorization: Bearer <token>` header to all outgoing requests
+    - Read `activeLeagueId` from `useLeagueStore.getState()` and append as `leagueId` query parameter when present
+    - Merge caller-provided headers with the Authorization header (do not overwrite Content-Type, etc.)
+    - Handle missing token gracefully: proceed without Authorization header (let middleware return 401, authenticated layout handles redirect)
+    - Handle URLs with existing query parameters correctly (use `?` or `&` appropriately)
+    - Export the function as a named export
+    - _Bug_Condition: isBugCondition(input) where input.url.startsWith("/api/admin/") AND input.localStorage.getItem("accessToken") != null AND input.headers.get("authorization") = null_
+    - _Expected_Behavior: adminFetch automatically includes Authorization: Bearer <token> header and leagueId param_
+    - _Preservation: Caller-provided headers, request body, and method are preserved unchanged. URLs with existing query params are handled correctly._
+    - _Requirements: 2.1, 2.2, 2.3_
+
+  - [x] 3.2 Update admin page components to use `adminFetch`
+    - Replace all `fetch("/api/admin/...")` calls with `adminFetch(...)` in the following files:
+    - `src/app/(authenticated)/admin/awards/page.tsx` - update fetchAwards, fetchNominations, handleSubmit, handleDelete, handleNominationAction
+    - `src/app/(authenticated)/admin/races/page.tsx` - update all fetch calls
+    - `src/app/(authenticated)/admin/races/[raceId]/results/page.tsx` - update all fetch calls
+    - `src/app/(authenticated)/admin/people/page.tsx` - update all fetch calls
+    - `src/app/(authenticated)/admin/seasons/page.tsx` - update all fetch calls
+    - `src/app/(authenticated)/admin/competitions/page.tsx` - update all fetch calls
+    - `src/app/(authenticated)/admin/organizations/page.tsx` - update all fetch calls
+    - `src/app/(authenticated)/admin/enrollments/page.tsx` - update all fetch calls
+    - `src/app/(authenticated)/admin/leagues/page.tsx` - update all fetch calls
+    - `src/app/(authenticated)/admin/branding/page.tsx` - update all fetch calls
+    - `src/app/(authenticated)/admin/results/page.tsx` - update all fetch calls
+    - `src/app/(authenticated)/admin/achievements/page.tsx` - update all fetch calls
+    - Add `import { adminFetch } from "@/lib/admin-fetch"` to each file
+    - Remove any manual `appendLeagueId` wrapping where `adminFetch` handles it automatically
+    - Preserve all existing request options (method, headers like Content-Type, body)
+    - _Bug_Condition: Each file currently uses plain fetch() without Authorization header_
+    - _Expected_Behavior: Each file uses adminFetch() which automatically includes Authorization header and leagueId_
+    - _Preservation: All existing request options (method, body, Content-Type headers) remain unchanged_
+    - _Requirements: 2.1, 2.2, 2.3_
+
+  - [x] 3.3 Verify bug condition exploration test now passes
+    - **Property 1: Expected Behavior** - Admin Fetch Includes Authorization Header
+    - **IMPORTANT**: Re-run the SAME test from task 1 - do NOT write a new test
+    - The test from task 1 encodes the expected behavior (adminFetch includes Authorization header)
+    - Now that adminFetch exists and is implemented, the test should pass
+    - Run: `npx jest tests/property/admin-fetch-bug-condition.spec.ts --no-coverage`
+    - **EXPECTED OUTCOME**: Test PASSES (confirms bug is fixed - adminFetch now provides Authorization headers)
+    - _Requirements: 2.1, 2.2_
+
+  - [x] 3.4 Verify preservation tests still pass
+    - **Property 2: Preservation** - Non-Admin Fetch Behavior Unchanged
+    - **IMPORTANT**: Re-run the SAME tests from task 2 - do NOT write new tests
+    - Run: `npx jest tests/property/admin-fetch-preservation.spec.ts --no-coverage`
+    - **EXPECTED OUTCOME**: Tests PASS (confirms no regressions)
+    - Confirm header merging works correctly
+    - Confirm leagueId handling is correct
+    - Confirm missing token handling is graceful
+    - Confirm existing query parameters are preserved
+
+- [x] 4. Checkpoint - Ensure all tests pass
+  - Run full property test suite: `npx jest --selectProjects property --no-coverage`
+  - Run full unit test suite: `npx jest --selectProjects unit --no-coverage`
+  - Run TypeScript type check: `npx tsc --noEmit`
+  - Run linter: `npm run lint`
+  - Ensure all tests pass, ask the user if questions arise

@@ -5,6 +5,7 @@ import type { Category } from "@/types";
 export interface RaceResultDocument extends Document {
   raceId: mongoose.Types.ObjectId;
   racerId: mongoose.Types.ObjectId;
+  leagueId: mongoose.Types.ObjectId;
   seasonId: mongoose.Types.ObjectId;
   category: Category;
   position: number;
@@ -18,6 +19,7 @@ const RaceResultSchema = new Schema<RaceResultDocument>(
   {
     raceId: { type: Schema.Types.ObjectId, ref: "Race", required: true },
     racerId: { type: Schema.Types.ObjectId, ref: "Person", required: true },
+    leagueId: { type: Schema.Types.ObjectId, required: true, ref: "League" },
     seasonId: { type: Schema.Types.ObjectId, ref: "Season", required: true },
     category: {
       type: String,
@@ -33,6 +35,7 @@ const RaceResultSchema = new Schema<RaceResultDocument>(
 
 // Unique compound index to prevent duplicate results for same racer in same race
 RaceResultSchema.index({ raceId: 1, racerId: 1 }, { unique: true });
+RaceResultSchema.index({ leagueId: 1, seasonId: 1, racerId: 1 });
 RaceResultSchema.index({ seasonId: 1 });
 RaceResultSchema.index({ racerId: 1, seasonId: 1 });
 

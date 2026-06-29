@@ -1,7 +1,7 @@
 /**
- * GET /api/admin/competitions - List all competitions (optionally filtered by seasonId)
- * POST /api/admin/competitions - Create a new competition
- * @see Requirements 6.14
+ * GET /api/admin/competitions - List competitions scoped to league (optionally filtered by seasonId)
+ * POST /api/admin/competitions - Create a new competition within a league-season
+ * @see Requirements 6.14, 9.2, 9.3
  */
 
 import { NextResponse } from "next/server";
@@ -15,9 +15,21 @@ const competitionService = new CompetitionService();
 const handleGet: AuthenticatedHandler = async (request) => {
   try {
     const url = new URL(request.url);
+    const leagueId = url.searchParams.get("leagueId");
     const seasonId = url.searchParams.get("seasonId") ?? undefined;
 
-    const competitions = await competitionService.list(seasonId);
+    if (!leagueId) {
+      return NextResponse.json(
+        {
+          status: 400,
+          code: "LEAGUE_REQUIRED",
+          message: "leagueId query parameter is required",
+        },
+        { status: 400 }
+      );
+    }
+
+    const competitions = await competitionService.list({ leagueId, seasonId });
 
     return NextResponse.json({ data: competitions }, { status: 200 });
   } catch (error) {
@@ -35,8 +47,22 @@ const handleGet: AuthenticatedHandler = async (request) => {
 
 const handlePost: AuthenticatedHandler = async (request) => {
   try {
+    const url = new URL(request.url);
+    const leagueId = url.searchParams.get("leagueId");
+
+    if (!leagueId) {
+      return NextResponse.json(
+        {
+          status: 400,
+          code: "LEAGUE_REQUIRED",
+          message: "leagueId query parameter is required",
+        },
+        { status: 400 }
+      );
+    }
+
     const body = await request.json();
-    const parsed = createCompetitionSchema.safeParse(body);
+    const parsed = createCompetitionSchema.safeParse({ ...body, leagueId });
 
     if (!parsed.success) {
       return NextResponse.json(

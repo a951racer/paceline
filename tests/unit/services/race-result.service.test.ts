@@ -5,8 +5,10 @@ import { RaceResultModel } from "@/models/race-result.model";
 import { RaceModel } from "@/models/race.model";
 import { PersonModel } from "@/models/person.model";
 import { SeasonModel } from "@/models/season.model";
+import { EnrollmentModel } from "@/models/enrollment.model";
 import { SeasonService } from "@/services/season.service";
 import { RaceService } from "@/services/race.service";
+import { EnrollmentService } from "@/services/enrollment.service";
 import {
   setOnResultsEnteredCallback,
   onResultsEntered,
@@ -16,6 +18,9 @@ let mongoServer: MongoMemoryServer;
 let service: RaceResultService;
 let seasonService: SeasonService;
 let raceService: RaceService;
+let enrollmentService: EnrollmentService;
+const defaultLeagueId = new mongoose.Types.ObjectId().toString();
+const adminUserId = new mongoose.Types.ObjectId().toString();
 
 beforeAll(async () => {
   mongoServer = await MongoMemoryServer.create();
@@ -24,6 +29,7 @@ beforeAll(async () => {
   service = new RaceResultService();
   seasonService = new SeasonService();
   raceService = new RaceService();
+  enrollmentService = new EnrollmentService();
 });
 
 afterAll(async () => {
@@ -37,6 +43,7 @@ afterEach(async () => {
   await RaceModel.deleteMany({});
   await PersonModel.deleteMany({});
   await SeasonModel.deleteMany({});
+  await EnrollmentModel.deleteMany({});
   setOnResultsEnteredCallback(null);
 });
 
@@ -44,6 +51,7 @@ afterEach(async () => {
 async function createSeason2024() {
   return seasonService.create({
     name: "2024 Season",
+    leagueId: defaultLeagueId,
     startDate: new Date("2024-01-01"),
     endDate: new Date("2024-12-31"),
   });
@@ -56,6 +64,7 @@ async function createRace(seasonId: string) {
     date: new Date("2024-06-15"),
     location: { name: "City Center" },
     raceType: "crit",
+    leagueId: defaultLeagueId,
     categories: ["cat3", "cat4"],
     seasonId,
   });
@@ -73,12 +82,18 @@ async function createRacer(overrides?: Record<string, unknown>) {
   });
 }
 
+/** Helper to enroll a racer in a league-season */
+async function enrollRacer(personId: string, leagueId: string, seasonId: string) {
+  return enrollmentService.enrollPerson(personId, leagueId, seasonId, adminUserId);
+}
+
 describe("RaceResultService", () => {
   describe("enter", () => {
     it("should enter results for a race (Req 5.1)", async () => {
       const season = await createSeason2024();
       const race = await createRace(season._id.toString());
       const racer = await createRacer();
+      await enrollRacer(racer._id.toString(), defaultLeagueId, season._id.toString());
 
       const response = await service.enter(race._id.toString(), [
         {
@@ -98,6 +113,7 @@ describe("RaceResultService", () => {
       expect(response.successful[0].racerId.toString()).toBe(
         racer._id.toString()
       );
+      expect(response.successful[0].leagueId.toString()).toBe(defaultLeagueId);
       expect(response.successful[0].seasonId.toString()).toBe(
         season._id.toString()
       );
@@ -116,6 +132,8 @@ describe("RaceResultService", () => {
       const racer2 = await createRacer({
         name: { first: "Bob", last: "Jones" },
       });
+      await enrollRacer(racer1._id.toString(), defaultLeagueId, season._id.toString());
+      await enrollRacer(racer2._id.toString(), defaultLeagueId, season._id.toString());
 
       const response = await service.enter(race._id.toString(), [
         {
@@ -156,10 +174,32 @@ describe("RaceResultService", () => {
       expect(response.errors[0].reason).toContain("does not exist");
     });
 
+    it("should reject entry for racer not enrolled in league-season (Req 9.6)", async () => {
+      const season = await createSeason2024();
+      const race = await createRace(season._id.toString());
+      const racer = await createRacer();
+      // Racer exists but is NOT enrolled in this league-season
+
+      const response = await service.enter(race._id.toString(), [
+        {
+          racerId: racer._id.toString(),
+          category: "cat3",
+          position: 1,
+          finishTime: 3600000,
+        },
+      ]);
+
+      expect(response.successful).toHaveLength(0);
+      expect(response.errors).toHaveLength(1);
+      expect(response.errors[0].racerId).toBe(racer._id.toString());
+      expect(response.errors[0].reason).toContain("not enrolled");
+    });
+
     it("should reject duplicate result for same racer and race (Req 5.4)", async () => {
       const season = await createSeason2024();
       const race = await createRace(season._id.toString());
       const racer = await createRacer();
+      await enrollRacer(racer._id.toString(), defaultLeagueId, season._id.toString());
 
       // First entry succeeds
       await service.enter(race._id.toString(), [
@@ -190,6 +230,7 @@ describe("RaceResultService", () => {
       const season = await createSeason2024();
       const race = await createRace(season._id.toString());
       const validRacer = await createRacer();
+      await enrollRacer(validRacer._id.toString(), defaultLeagueId, season._id.toString());
       const fakeRacerId = new mongoose.Types.ObjectId().toString();
 
       const response = await service.enter(race._id.toString(), [
@@ -230,6 +271,7 @@ describe("RaceResultService", () => {
       const season = await createSeason2024();
       const race = await createRace(season._id.toString());
       const racer = await createRacer();
+      await enrollRacer(racer._id.toString(), defaultLeagueId, season._id.toString());
 
       const mockCallback = jest.fn();
       setOnResultsEnteredCallback(mockCallback);
@@ -301,6 +343,7 @@ describe("RaceResultService", () => {
       const season = await createSeason2024();
       const race = await createRace(season._id.toString());
       const racer = await createRacer();
+      await enrollRacer(racer._id.toString(), defaultLeagueId, season._id.toString());
 
       // Enter initial result
       await service.enter(race._id.toString(), [
@@ -334,6 +377,9 @@ describe("RaceResultService", () => {
       const racer3 = await createRacer({
         name: { first: "Third", last: "Place" },
       });
+      await enrollRacer(racer1._id.toString(), defaultLeagueId, season._id.toString());
+      await enrollRacer(racer2._id.toString(), defaultLeagueId, season._id.toString());
+      await enrollRacer(racer3._id.toString(), defaultLeagueId, season._id.toString());
 
       await service.enter(race._id.toString(), [
         {
@@ -382,6 +428,7 @@ describe("RaceResultService", () => {
         date: new Date("2024-03-15"),
         location: { name: "Track A" },
         raceType: "crit",
+        leagueId: defaultLeagueId,
         seasonId: season._id.toString(),
       });
       const race2 = await raceService.create({
@@ -389,9 +436,11 @@ describe("RaceResultService", () => {
         date: new Date("2024-06-15"),
         location: { name: "Track B" },
         raceType: "road_race",
+        leagueId: defaultLeagueId,
         seasonId: season._id.toString(),
       });
       const racer = await createRacer();
+      await enrollRacer(racer._id.toString(), defaultLeagueId, season._id.toString());
 
       await service.enter(race1._id.toString(), [
         {
@@ -421,11 +470,13 @@ describe("RaceResultService", () => {
     it("should not return results from a different season", async () => {
       const season1 = await seasonService.create({
         name: "2024 Season",
+        leagueId: defaultLeagueId,
         startDate: new Date("2024-01-01"),
         endDate: new Date("2024-12-31"),
       });
       const season2 = await seasonService.create({
         name: "2025 Season",
+        leagueId: defaultLeagueId,
         startDate: new Date("2025-01-01"),
         endDate: new Date("2025-12-31"),
       });
@@ -434,6 +485,7 @@ describe("RaceResultService", () => {
         date: new Date("2024-06-15"),
         location: { name: "Track" },
         raceType: "crit",
+        leagueId: defaultLeagueId,
         seasonId: season1._id.toString(),
       });
       const race2 = await raceService.create({
@@ -441,9 +493,12 @@ describe("RaceResultService", () => {
         date: new Date("2025-06-15"),
         location: { name: "Track" },
         raceType: "crit",
+        leagueId: defaultLeagueId,
         seasonId: season2._id.toString(),
       });
       const racer = await createRacer();
+      await enrollRacer(racer._id.toString(), defaultLeagueId, season1._id.toString());
+      await enrollRacer(racer._id.toString(), defaultLeagueId, season2._id.toString());
 
       await service.enter(race1._id.toString(), [
         {

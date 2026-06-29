@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { Palette, Save } from "lucide-react";
+import { adminFetch } from "@/lib/admin-fetch";
 
 interface BrandingConfig {
   leagueName: string;
@@ -70,7 +71,7 @@ export default function AdminBrandingPage() {
     };
 
     try {
-      const res = await fetch("/api/admin/branding", {
+      const res = await adminFetch("/api/admin/branding", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

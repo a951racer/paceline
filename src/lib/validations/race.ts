@@ -1,24 +1,13 @@
 import { z } from "zod";
 
-/** Valid race types */
-const raceTypeValues = [
-  "crit",
-  "time_trial",
-  "road_race",
-  "cyclocross",
-  "gravel",
-  "track",
-] as const;
-
-/** Valid categories */
-const categoryValues = [
-  "cat1",
-  "cat2",
-  "cat3",
-  "cat4",
-  "cat5",
-  "beginner",
-] as const;
+/**
+ * Race types and categories are now league-scoped reference data.
+ * Validation is done as z.string().min(1) at the schema level,
+ * with runtime validation against active reference data in the API layer.
+ *
+ * Default race types: crit, time_trial, road_race, cyclocross, gravel, track
+ * Default categories: cat1, cat2, cat3, cat4, cat5, beginner
+ */
 
 /** Valid race statuses */
 const raceStatusValues = [
@@ -46,8 +35,9 @@ export const createRaceSchema = z.object({
   name: z.string().min(1, "Race name is required"),
   date: z.coerce.date(),
   location: locationSchema,
-  raceType: z.enum(raceTypeValues),
-  categories: z.array(z.enum(categoryValues)).default([]),
+  raceType: z.string().min(1, "Race type is required"),
+  leagueId: z.string().min(1, "League ID is required"),
+  categories: z.array(z.string().min(1)).default([]),
   seasonId: z.string().min(1, "Season ID is required"),
   competitionIds: z.array(z.string()).default([]),
   officialIds: z.array(z.string()).default([]),
@@ -61,8 +51,8 @@ export const updateRaceSchema = z.object({
   name: z.string().min(1, "Race name is required").optional(),
   date: z.coerce.date().optional(),
   location: locationSchema.optional(),
-  raceType: z.enum(raceTypeValues).optional(),
-  categories: z.array(z.enum(categoryValues)).optional(),
+  raceType: z.string().min(1, "Race type is required").optional(),
+  categories: z.array(z.string().min(1)).optional(),
   seasonId: z.string().min(1, "Season ID is required").optional(),
   competitionIds: z.array(z.string()).optional(),
   officialIds: z.array(z.string()).optional(),

@@ -61,3 +61,16 @@ export type {
 
 export { BrandingConfigurationModel } from "./branding.model";
 export type { BrandingConfigurationDocument } from "./branding.model";
+
+export { LeagueModel } from "./league.model";
+export type {
+  LeagueDocument,
+  LeagueBrandingSubdoc,
+  LeagueBrandingLogosSubdoc,
+} from "./league.model";
+
+export { EnrollmentModel } from "./enrollment.model";
+export type { EnrollmentDocument } from "./enrollment.model";
+
+export { ReferenceDataModel } from "./reference-data.model";
+export type { ReferenceDataDocument } from "./reference-data.model";

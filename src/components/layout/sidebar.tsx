@@ -2,7 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   Calendar,
@@ -22,6 +22,9 @@ import {
   ListOrdered,
   Sun,
   Moon,
+  Globe,
+  Database,
+  LogOut,
 } from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
 
@@ -39,8 +42,10 @@ const mainNavLinks = [
 ];
 
 const adminNavLinks = [
+  { label: "Leagues", href: "/admin/leagues", icon: Globe },
   { label: "People", href: "/admin/people", icon: Users },
   { label: "Organizations", href: "/admin/organizations", icon: Building2 },
+  { label: "Enrollments", href: "/admin/enrollments", icon: UserCheck },
   { label: "Races", href: "/admin/races", icon: Flag },
   { label: "Results", href: "/admin/results", icon: ListOrdered },
   { label: "Seasons", href: "/admin/seasons", icon: Calendar },
@@ -48,6 +53,7 @@ const adminNavLinks = [
   { label: "Achievements", href: "/admin/achievements", icon: Award },
   { label: "Awards", href: "/admin/awards", icon: Medal },
   { label: "Branding", href: "/admin/branding", icon: Palette },
+  { label: "Reference Data", href: "/admin/reference-data", icon: Database },
 ];
 
 // Mock user for now
@@ -61,18 +67,21 @@ const mockUser = {
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { branding, mode, toggleMode } = useTheme();
+  const router = useRouter();
+  const { mode, toggleMode } = useTheme();
 
-  const logoUrl = branding?.logos?.square;
-  const leagueName = branding?.leagueName ?? "Paceline";
+  const handleLogout = () => {
+    localStorage.removeItem("accessToken");
+    router.replace("/");
+  };
 
   return (
     <aside className="flex h-full w-56 flex-col bg-[#1A1B1F]">
       {/* Logo */}
       <div className="flex items-center justify-center px-3 py-4">
         <img
-          src={logoUrl || "/images/logo-sidebar.png"}
-          alt={`${leagueName} logo`}
+          src="/images/logo-sidebar.png"
+          alt="Paceline logo"
           className="h-auto w-full max-w-[140px] object-contain"
         />
       </div>
@@ -182,6 +191,17 @@ export function Sidebar() {
           <Moon className="h-3.5 w-3.5 text-[#6B7280]" />
           <span className="text-[10px] text-[#6B7280] uppercase tracking-wider">Dark</span>
         </div>
+      </div>
+
+      {/* Logout */}
+      <div className="border-t border-[#2E3038] px-3 py-3">
+        <button
+          onClick={handleLogout}
+          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-xs font-medium tracking-wider text-[#C5CBD3] transition-colors hover:bg-[#111214] hover:text-white"
+        >
+          <LogOut className="h-4 w-4 shrink-0" />
+          <span>LOGOUT</span>
+        </button>
       </div>
     </aside>
   );

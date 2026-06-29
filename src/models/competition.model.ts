@@ -2,19 +2,17 @@ import mongoose, { Schema, Document, Model } from "mongoose";
 import type {
   CompetitionType,
   ScoringMethodType,
-  Category,
-  RaceType,
 } from "@/types";
 
 /** Eligibility criteria subdocument */
 export interface EligibilityCriteriaSubdoc {
   racerCriteria?: {
-    categories?: Category[];
+    categories?: string[];
     firstYearOnly?: boolean;
     minRaces?: number;
   };
   raceCriteria?: {
-    raceTypes?: RaceType[];
+    raceTypes?: string[];
     specificRaceIds?: mongoose.Types.ObjectId[];
   };
 }
@@ -30,6 +28,7 @@ export interface ScoringMethodSubdoc {
 export interface CompetitionDocument extends Document {
   name: string;
   description?: string;
+  leagueId: mongoose.Types.ObjectId;
   seasonId: mongoose.Types.ObjectId;
   type: CompetitionType;
   scoringMethod: ScoringMethodSubdoc;
@@ -43,7 +42,6 @@ const RacerCriteriaSchema = new Schema(
   {
     categories: {
       type: [String],
-      enum: ["cat1", "cat2", "cat3", "cat4", "cat5", "beginner"],
     },
     firstYearOnly: { type: Boolean },
     minRaces: { type: Number, min: 0 },
@@ -55,7 +53,6 @@ const RaceCriteriaSchema = new Schema(
   {
     raceTypes: {
       type: [String],
-      enum: ["crit", "time_trial", "road_race", "cyclocross", "gravel", "track"],
     },
     specificRaceIds: { type: [Schema.Types.ObjectId] },
   },
@@ -87,6 +84,7 @@ const CompetitionSchema = new Schema<CompetitionDocument>(
   {
     name: { type: String, required: true },
     description: { type: String },
+    leagueId: { type: Schema.Types.ObjectId, required: true, ref: "League" },
     seasonId: { type: Schema.Types.ObjectId, ref: "Season", required: true },
     type: {
       type: String,
@@ -100,6 +98,7 @@ const CompetitionSchema = new Schema<CompetitionDocument>(
   { timestamps: true }
 );
 
+CompetitionSchema.index({ leagueId: 1, seasonId: 1 });
 CompetitionSchema.index({ seasonId: 1 });
 CompetitionSchema.index({ isActive: 1 });
 

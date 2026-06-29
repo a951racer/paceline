@@ -85,6 +85,7 @@ const handlePut: AuthenticatedHandler = async (request) => {
       const endDate = parsed.data.endDate ?? existing.endDate;
 
       const isValid = await seasonService.validateNoOverlap(
+        existing.leagueId.toString(),
         startDate,
         endDate,
         seasonId
@@ -93,9 +94,9 @@ const handlePut: AuthenticatedHandler = async (request) => {
         return NextResponse.json(
           {
             status: 409,
-            code: "SEASON_OVERLAP",
+            code: "SEASON_OVERLAP_IN_LEAGUE",
             message:
-              "Season date range overlaps with an existing season. Please choose a non-overlapping date range.",
+              "Season date range overlaps with an existing season in this league. Please choose a non-overlapping date range.",
           },
           { status: 409 }
         );

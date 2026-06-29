@@ -58,7 +58,7 @@ describe("GET /api/standings", () => {
   it("returns 200 with empty data and message when no active season", async () => {
     mockSeasonGetActive.mockResolvedValue(null);
 
-    const req = createRequest("http://localhost/api/standings");
+    const req = createRequest("http://localhost/api/standings?leagueId=league-1");
     const res = await GET_STANDINGS(req);
     const data = await res.json();
 
@@ -80,7 +80,7 @@ describe("GET /api/standings", () => {
       sort: jest.fn().mockResolvedValue(mockStandings),
     });
 
-    const req = createRequest("http://localhost/api/standings");
+    const req = createRequest("http://localhost/api/standings?leagueId=league-1");
     const res = await GET_STANDINGS(req);
     const data = await res.json();
 
@@ -95,7 +95,7 @@ describe("GET /api/standings", () => {
   it("returns 500 on internal error", async () => {
     mockSeasonGetActive.mockRejectedValue(new Error("DB connection failed"));
 
-    const req = createRequest("http://localhost/api/standings");
+    const req = createRequest("http://localhost/api/standings?leagueId=league-1");
     const res = await GET_STANDINGS(req);
     const data = await res.json();
 
@@ -115,7 +115,7 @@ describe("GET /api/standings/[seasonId]", () => {
   it("returns 404 when season not found", async () => {
     mockSeasonGetById.mockResolvedValue(null);
 
-    const req = createRequest("http://localhost/api/standings/nonexistent-id");
+    const req = createRequest("http://localhost/api/standings/nonexistent-id?leagueId=league-1");
     const res = await GET_STANDINGS_BY_SEASON(req);
     const data = await res.json();
 
@@ -134,7 +134,7 @@ describe("GET /api/standings/[seasonId]", () => {
       sort: jest.fn().mockResolvedValue(mockStandings),
     });
 
-    const req = createRequest("http://localhost/api/standings/season-old");
+    const req = createRequest("http://localhost/api/standings/season-old?leagueId=league-1");
     const res = await GET_STANDINGS_BY_SEASON(req);
     const data = await res.json();
 
@@ -149,7 +149,7 @@ describe("GET /api/standings/[seasonId]", () => {
     castError.name = "CastError";
     mockSeasonGetById.mockRejectedValue(castError);
 
-    const req = createRequest("http://localhost/api/standings/invalid!id");
+    const req = createRequest("http://localhost/api/standings/invalid!id?leagueId=league-1");
     const res = await GET_STANDINGS_BY_SEASON(req);
     const data = await res.json();
 
@@ -160,7 +160,7 @@ describe("GET /api/standings/[seasonId]", () => {
   it("returns 500 on internal error", async () => {
     mockSeasonGetById.mockRejectedValue(new Error("DB connection failed"));
 
-    const req = createRequest("http://localhost/api/standings/season-1");
+    const req = createRequest("http://localhost/api/standings/season-1?leagueId=league-1");
     const res = await GET_STANDINGS_BY_SEASON(req);
     const data = await res.json();
 
@@ -180,7 +180,7 @@ describe("GET /api/standings/team", () => {
   it("returns 200 with empty data and message when no active season", async () => {
     mockSeasonGetActive.mockResolvedValue(null);
 
-    const req = createRequest("http://localhost/api/standings/team");
+    const req = createRequest("http://localhost/api/standings/team?leagueId=league-1");
     const res = await GET_TEAM_STANDINGS(req);
     const data = await res.json();
 
@@ -201,7 +201,7 @@ describe("GET /api/standings/team", () => {
       sort: jest.fn().mockResolvedValue(mockTeamStandings),
     });
 
-    const req = createRequest("http://localhost/api/standings/team");
+    const req = createRequest("http://localhost/api/standings/team?leagueId=league-1");
     const res = await GET_TEAM_STANDINGS(req);
     const data = await res.json();
 
@@ -214,7 +214,7 @@ describe("GET /api/standings/team", () => {
   it("returns 500 on internal error", async () => {
     mockSeasonGetActive.mockRejectedValue(new Error("DB connection failed"));
 
-    const req = createRequest("http://localhost/api/standings/team");
+    const req = createRequest("http://localhost/api/standings/team?leagueId=league-1");
     const res = await GET_TEAM_STANDINGS(req);
     const data = await res.json();
 

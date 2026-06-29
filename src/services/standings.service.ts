@@ -3,7 +3,11 @@
  * Handles standings calculation per competition, applying scoring methods,
  * eligibility criteria, and TimescaleDB history snapshots.
  *
+ * All methods are scoped to a league-season combination. Non-enrolled entities
+ * are excluded from standings even if race results exist.
+ *
  * Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 6.13, 6.17
+ * Requirements (multi-league): 5.2, 5.7, 7.5, 7.6, 7.7
  */
 
 import { connectMongoDB } from "@/lib/db/mongodb";
@@ -11,11 +15,11 @@ import { StandingModel, type StandingDocument, TeamStandingModel, type TeamStand
 import { RaceResultModel } from "@/models/race-result.model";
 import {
   CompetitionModel,
-  type CompetitionDocument,
 } from "@/models/competition.model";
 import { RaceModel } from "@/models/race.model";
 import { PersonModel } from "@/models/person.model";
 import { OrganizationModel } from "@/models/organization.model";
+import { EnrollmentModel } from "@/models/enrollment.model";
 import { CompetitionService } from "@/services/competition.service";
 import { queryWithRetry } from "@/lib/db/timescaledb";
 import { setOnResultsEnteredCallback } from "@/services/race-result.service";
@@ -42,24 +46,29 @@ export class StandingsService {
   }
 
   /**
-   * Calculate standings for a specific competition in a season.
+   * Calculate standings for a specific competition in a league-season.
    *
    * 1. Fetch the competition to get scoring method and eligibility criteria
-   * 2. Fetch all race results for the season
-   * 3. For each result, check eligibility against the competition
-   * 4. Group eligible results by racerId
-   * 5. Apply scoring method (points/time/position_average)
-   * 6. Sort and assign positions
-   * 7. Upsert standings in MongoDB
-   * 8. Insert standings history snapshot into TimescaleDB
+   * 2. Get enrolled racer IDs for the league-season
+   * 3. Fetch race results for the league-season, filtered to enrolled racers only
+   * 4. For each result, check eligibility against the competition
+   * 5. Group eligible results by racerId
+   * 6. Apply scoring method (points/time/position_average)
+   * 7. Sort and assign positions
+   * 8. Upsert standings in MongoDB with leagueId
+   * 9. Insert standings history snapshot into TimescaleDB
    *
    * Requirement 6.1: Compute Standings by aggregating Race_Results within each Competition
    * Requirement 6.2: Recalculate affected Standings when Race_Results are updated
    * Requirement 6.13: Evaluate Race_Result against competitions and include in matching standings
+   * Requirement 7.5: Non-enrolled entities excluded from standings
+   * Requirement 7.6: Only enrolled racers/teams appear in standings
+   * Requirement 7.7: Standings recalculation only affects the specific league-season
    */
   async calculate(
     competitionId: string,
-    seasonId: string
+    seasonId: string,
+    leagueId: string
   ): Promise<StandingDocument[]> {
     await connectMongoDB();
 
@@ -69,13 +78,30 @@ export class StandingsService {
       throw new Error(`Competition with id "${competitionId}" not found`);
     }
 
-    // 2. Fetch all race results for the season
-    const raceResults = await RaceResultModel.find({ seasonId });
+    // 2. Get enrolled racer IDs for the league-season (Req 7.5, 7.6)
+    const enrolledPersons = await EnrollmentModel.find({
+      leagueId,
+      seasonId,
+      entityType: "person",
+    }).select("entityId");
+    const enrolledRacerIds = new Set(
+      enrolledPersons.map((e) => e.entityId.toString())
+    );
 
-    // 3 & 4. Check eligibility and group by racerId
+    // 3. Fetch race results for the league-season
+    const raceResults = await RaceResultModel.find({ seasonId, leagueId });
+
+    // 4 & 5. Check eligibility, filter by enrollment, and group by racerId
     const racerDataMap = new Map<string, RacerStandingData>();
 
     for (const result of raceResults) {
+      const racerId = result.racerId.toString();
+
+      // Filter out non-enrolled racers (Req 7.5)
+      if (!enrolledRacerIds.has(racerId)) {
+        continue;
+      }
+
       // Get the race to check raceType for eligibility
       const race = await RaceModel.findById(result.raceId);
       if (!race) continue;
@@ -91,8 +117,6 @@ export class StandingsService {
       );
 
       if (!isEligible) continue;
-
-      const racerId = result.racerId.toString();
 
       if (!racerDataMap.has(racerId)) {
         // Get racer's team affiliation
@@ -126,7 +150,7 @@ export class StandingsService {
       });
     }
 
-    // 5. Apply scoring method
+    // 6. Apply scoring method
     const scoringMethod = competition.scoringMethod;
     const standings: {
       racerId: string;
@@ -170,7 +194,7 @@ export class StandingsService {
       });
     }
 
-    // 6. Sort by total points/time/average and assign positions
+    // 7. Sort by total points/time/average and assign positions
     if (scoringMethod.type === "points") {
       // Higher points = better position
       standings.sort((a, b) => b.totalPoints - a.totalPoints);
@@ -184,17 +208,19 @@ export class StandingsService {
       (s as { position?: number }).position = index + 1;
     });
 
-    // 7. Upsert standings in MongoDB
+    // 8. Upsert standings in MongoDB with leagueId
     const savedStandings: StandingDocument[] = [];
     for (const standing of standings) {
       const doc = await StandingModel.findOneAndUpdate(
         {
           competitionId,
           seasonId,
+          leagueId,
           racerId: standing.racerId,
         },
         {
           $set: {
+            leagueId,
             category: standing.category,
             teamId: standing.teamId,
             totalPoints: standing.totalPoints,
@@ -209,77 +235,84 @@ export class StandingsService {
       savedStandings.push(doc);
     }
 
-    // Remove standings for racers no longer in the competition
+    // Remove standings for racers no longer in the competition for this league-season
     const currentRacerIds = standings.map((s) => s.racerId);
     await StandingModel.deleteMany({
       competitionId,
       seasonId,
+      leagueId,
       racerId: { $nin: currentRacerIds },
     });
 
-    // 8. Insert standings history snapshot into TimescaleDB
-    await this.insertStandingsHistory(competitionId, seasonId, savedStandings);
+    // 9. Insert standings history snapshot into TimescaleDB
+    await this.insertStandingsHistory(competitionId, seasonId, leagueId, savedStandings);
 
     return savedStandings;
   }
 
   /**
-   * Recalculate all standings for a season across all active competitions.
+   * Recalculate all standings for a league-season across all active competitions.
    * Handles both individual and team competitions.
+   * Only affects the specific league-season (isolation guarantee - Req 7.7).
    *
    * Requirement 6.2: Recalculate affected Standings when Race_Results are updated
    * Requirement 6.9: Recalculate team standings when membership changes
+   * Requirement 7.7: Standings recalculation only affects the specific league-season
    */
-  async recalculateAll(seasonId: string): Promise<void> {
+  async recalculateAll(seasonId: string, leagueId: string): Promise<void> {
     await connectMongoDB();
 
-    // Get all active individual competitions for the season
+    // Get all active individual competitions for the league-season
     const individualCompetitions = await CompetitionModel.find({
       seasonId,
+      leagueId,
       isActive: true,
       type: "individual",
     });
 
     for (const competition of individualCompetitions) {
-      await this.calculate(competition._id.toString(), seasonId);
+      await this.calculate(competition._id.toString(), seasonId, leagueId);
     }
 
-    // Get all active team competitions for the season
+    // Get all active team competitions for the league-season
     const teamCompetitions = await CompetitionModel.find({
       seasonId,
+      leagueId,
       isActive: true,
       type: "team",
     });
 
     for (const competition of teamCompetitions) {
-      await this.calculateTeam(competition._id.toString(), seasonId);
+      await this.calculateTeam(competition._id.toString(), seasonId, leagueId);
     }
 
     // Notify that standings have been updated so recognitions can be recomputed
-    notifyStandingsUpdated(seasonId);
+    notifyStandingsUpdated(seasonId, leagueId);
   }
 
   /**
-   * Calculate team standings for a specific team-type competition in a season.
+   * Calculate team standings for a specific team-type competition in a league-season.
    *
    * 1. Fetch the competition (must be type 'team')
-   * 2. Get all team-type organizations
-   * 3. For each team:
+   * 2. Get enrolled organization IDs for the league-season
+   * 3. For each enrolled team:
    *    a. Get all member person IDs from the organization
-   *    b. Fetch all race results for those members in the season
+   *    b. Fetch race results for enrolled members in the league-season
    *    c. Check eligibility of each result against the competition
-   *    d. Aggregate points using the competition's scoring method (sum all member points)
-   * 4. Sort teams by totalPoints descending and assign positions
-   * 5. Upsert team standings in MongoDB (TeamStandingModel)
-   * 6. Insert team standings history into TimescaleDB (team_standings_history table)
+   *    d. Aggregate points using the competition's scoring method
+   * 4. Sort teams by totalPoints and assign positions
+   * 5. Upsert team standings in MongoDB with leagueId
+   * 6. Insert team standings history into TimescaleDB
    *
    * Requirement 6.6: Compute Team_Standings by aggregating Race_Results of team members
    * Requirement 6.7: Include Race_Result in Team_Standing for the racer's team
    * Requirement 6.17: Compute Team Championship Standings by aggregating all member results
+   * Requirement 7.6: Only enrolled teams appear in standings
    */
   async calculateTeam(
     competitionId: string,
-    seasonId: string
+    seasonId: string,
+    leagueId: string
   ): Promise<TeamStandingDocument[]> {
     await connectMongoDB();
 
@@ -295,10 +328,23 @@ export class StandingsService {
       );
     }
 
-    // 2. Get all team-type organizations
-    const teams = await OrganizationModel.find({ type: "team" });
+    // 2. Get enrolled organization IDs for the league-season (Req 7.6)
+    const enrolledOrgs = await EnrollmentModel.find({
+      leagueId,
+      seasonId,
+      entityType: "organization",
+    }).select("entityId");
+    const enrolledOrgIds = new Set(
+      enrolledOrgs.map((e) => e.entityId.toString())
+    );
 
-    // 3. For each team, aggregate member results
+    // Get all team-type organizations that are enrolled
+    const teams = await OrganizationModel.find({
+      type: "team",
+      _id: { $in: Array.from(enrolledOrgIds) },
+    });
+
+    // 3. For each enrolled team, aggregate member results
     const teamStandingsData: {
       organizationId: string;
       totalPoints: number;
@@ -313,9 +359,10 @@ export class StandingsService {
         continue;
       }
 
-      // b. Fetch all race results for team members in the season
+      // b. Fetch race results for team members in the league-season
       const raceResults = await RaceResultModel.find({
         seasonId,
+        leagueId,
         racerId: { $in: memberIds },
       });
 
@@ -387,17 +434,19 @@ export class StandingsService {
       (t as { position?: number }).position = index + 1;
     });
 
-    // 5. Upsert team standings in MongoDB
+    // 5. Upsert team standings in MongoDB with leagueId
     const savedStandings: TeamStandingDocument[] = [];
     for (const standing of teamStandingsData) {
       const doc = await TeamStandingModel.findOneAndUpdate(
         {
           competitionId,
           seasonId,
+          leagueId,
           organizationId: standing.organizationId,
         },
         {
           $set: {
+            leagueId,
             totalPoints: standing.totalPoints,
             totalRaces: standing.totalRaces,
             position: (standing as { position?: number }).position,
@@ -410,16 +459,17 @@ export class StandingsService {
       savedStandings.push(doc);
     }
 
-    // Remove team standings for teams no longer in the competition
+    // Remove team standings for teams no longer in the competition for this league-season
     const currentOrgIds = teamStandingsData.map((t) => t.organizationId);
     await TeamStandingModel.deleteMany({
       competitionId,
       seasonId,
+      leagueId,
       organizationId: { $nin: currentOrgIds },
     });
 
     // 6. Insert team standings history into TimescaleDB
-    await this.insertTeamStandingsHistory(competitionId, seasonId, savedStandings);
+    await this.insertTeamStandingsHistory(competitionId, seasonId, leagueId, savedStandings);
 
     return savedStandings;
   }
@@ -431,6 +481,7 @@ export class StandingsService {
   private async insertStandingsHistory(
     competitionId: string,
     seasonId: string,
+    leagueId: string,
     standings: StandingDocument[]
   ): Promise<void> {
     if (standings.length === 0) return;
@@ -440,13 +491,14 @@ export class StandingsService {
     for (const standing of standings) {
       try {
         await queryWithRetry(
-          `INSERT INTO standings_history (time, person_id, competition_id, season_id, position, total_points, total_races)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          `INSERT INTO standings_history (time, person_id, competition_id, season_id, league_id, position, total_points, total_races)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
           [
             now,
             standing.racerId.toString(),
             competitionId,
             seasonId,
+            leagueId,
             standing.position,
             standing.totalPoints,
             standing.totalRaces,
@@ -469,6 +521,7 @@ export class StandingsService {
   private async insertTeamStandingsHistory(
     competitionId: string,
     seasonId: string,
+    leagueId: string,
     standings: TeamStandingDocument[]
   ): Promise<void> {
     if (standings.length === 0) return;
@@ -478,13 +531,14 @@ export class StandingsService {
     for (const standing of standings) {
       try {
         await queryWithRetry(
-          `INSERT INTO team_standings_history (time, organization_id, competition_id, season_id, position, total_points)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
+          `INSERT INTO team_standings_history (time, organization_id, competition_id, season_id, league_id, position, total_points)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
           [
             now,
             standing.organizationId.toString(),
             competitionId,
             seasonId,
+            leagueId,
             standing.position,
             standing.totalPoints,
           ]
@@ -503,16 +557,27 @@ export class StandingsService {
 /**
  * Wire the StandingsService into the RaceResultService callback
  * so standings are recalculated automatically after results are entered.
+ * The callback retrieves the leagueId from the race to scope recalculation.
  */
 export function wireStandingsRecalculation(): void {
   const standingsService = new StandingsService();
-  setOnResultsEnteredCallback((_raceId: string, seasonId: string) => {
-    // Fire and forget - recalculate in the background
-    standingsService.recalculateAll(seasonId).catch((error) => {
+  setOnResultsEnteredCallback(async (raceId: string, seasonId: string) => {
+    try {
+      // Get leagueId from the race
+      const race = await RaceModel.findById(raceId);
+      if (!race) {
+        console.error(
+          `[StandingsService] Cannot recalculate: race "${raceId}" not found`
+        );
+        return;
+      }
+      const leagueId = race.leagueId.toString();
+      await standingsService.recalculateAll(seasonId, leagueId);
+    } catch (error) {
       console.error(
         "[StandingsService] Failed to recalculate standings:",
         error instanceof Error ? error.message : error
       );
-    });
+    }
   });
 }

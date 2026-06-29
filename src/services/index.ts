@@ -33,3 +33,15 @@ export { setOnStandingsUpdatedCallback, notifyStandingsUpdated } from './calcula
 
 export { BrandingService } from './branding.service';
 export type { UpdateBrandingData, UploadFile, LogoVariant } from './branding.service';
+
+export { LeagueService } from './league.service';
+
+export { EnrollmentService } from './enrollment.service';
+
+export { LeagueAuthorizationService } from './league-authorization.service';
+
+export { MigrationService } from './migration.service';
+export type { MigrationResult, VerificationResult } from './migration.service';
+
+export { ReferenceDataService } from './reference-data.service';
+export type { CreateReferenceDataParams } from './reference-data.service';
