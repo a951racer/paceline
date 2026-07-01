@@ -9,6 +9,8 @@ export interface AchievementDocument extends Document {
     threshold: number;
   };
   badgeUrl: string;
+  leagueId: mongoose.Types.ObjectId;
+  seasonId: mongoose.Types.ObjectId;
   createdAt: Date;
 }
 
@@ -27,9 +29,11 @@ const TriggerCriteriaSchema = new Schema(
 const AchievementSchema = new Schema<AchievementDocument>(
   {
     name: { type: String, required: true },
-    description: { type: String, required: true },
+    description: { type: String },
     triggerCriteria: { type: TriggerCriteriaSchema, required: true },
-    badgeUrl: { type: String, required: true },
+    badgeUrl: { type: String },
+    leagueId: { type: Schema.Types.ObjectId, ref: "League", required: true },
+    seasonId: { type: Schema.Types.ObjectId, ref: "Season", required: true },
   },
   { timestamps: { createdAt: true, updatedAt: false } }
 );

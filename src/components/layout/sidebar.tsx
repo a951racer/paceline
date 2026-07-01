@@ -20,13 +20,11 @@ import {
   Medal,
   Palette,
   ListOrdered,
-  Sun,
-  Moon,
   Globe,
   Database,
   LogOut,
 } from "lucide-react";
-import { useTheme } from "@/hooks/use-theme";
+import { useUserStore } from "@/hooks/use-user-store";
 
 const mainNavLinks = [
   { label: "DASHBOARD", href: "/dashboard", icon: LayoutDashboard },
@@ -42,36 +40,31 @@ const mainNavLinks = [
 ];
 
 const adminNavLinks = [
-  { label: "Leagues", href: "/admin/leagues", icon: Globe },
-  { label: "People", href: "/admin/people", icon: Users },
-  { label: "Organizations", href: "/admin/organizations", icon: Building2 },
-  { label: "Enrollments", href: "/admin/enrollments", icon: UserCheck },
-  { label: "Races", href: "/admin/races", icon: Flag },
-  { label: "Results", href: "/admin/results", icon: ListOrdered },
-  { label: "Seasons", href: "/admin/seasons", icon: Calendar },
-  { label: "Competitions", href: "/admin/competitions", icon: Trophy },
-  { label: "Achievements", href: "/admin/achievements", icon: Award },
-  { label: "Awards", href: "/admin/awards", icon: Medal },
-  { label: "Branding", href: "/admin/branding", icon: Palette },
-  { label: "Reference Data", href: "/admin/reference-data", icon: Database },
+  { label: "Leagues", href: "/admin/leagues", icon: Globe, superAdminOnly: true },
+  { label: "People", href: "/admin/people", icon: Users, superAdminOnly: false },
+  { label: "Organizations", href: "/admin/organizations", icon: Building2, superAdminOnly: false },
+  { label: "Enrollments", href: "/admin/enrollments", icon: UserCheck, superAdminOnly: false },
+  { label: "Races", href: "/admin/races", icon: Flag, superAdminOnly: false },
+  { label: "Results", href: "/admin/results", icon: ListOrdered, superAdminOnly: false },
+  { label: "Seasons", href: "/admin/seasons", icon: Calendar, superAdminOnly: false },
+  { label: "Competitions", href: "/admin/competitions", icon: Trophy, superAdminOnly: false },
+  { label: "Achievements", href: "/admin/achievements", icon: Award, superAdminOnly: false },
+  { label: "Awards", href: "/admin/awards", icon: Medal, superAdminOnly: false },
+  { label: "Branding", href: "/admin/branding", icon: Palette, superAdminOnly: false },
+  { label: "Reference Data", href: "/admin/reference-data", icon: Database, superAdminOnly: false },
 ];
-
-// Mock user for now
-const mockUser = {
-  name: "Jon Hobbs",
-  role: "racer" as const,
-  category: "Cat 4",
-  team: "Team Velocity",
-  isAdmin: true,
-};
 
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { mode, toggleMode } = useTheme();
+
+  const { name: userName, isAdmin, isSuperAdmin, clearUser } = useUserStore();
 
   const handleLogout = () => {
     localStorage.removeItem("accessToken");
+    localStorage.removeItem("refreshToken");
+    localStorage.removeItem("userName");
+    clearUser();
     router.replace("/");
   };
 
@@ -114,7 +107,7 @@ export function Sidebar() {
         </ul>
 
         {/* Admin Section */}
-        {mockUser.isAdmin && (
+        {isAdmin && (
           <div className="mt-4 border-t border-[#2E3038] pt-3">
             <div className="flex items-center gap-2 px-3 py-1.5">
               <Settings className="h-3 w-3 text-[#6B7280]" />
@@ -123,7 +116,9 @@ export function Sidebar() {
               </span>
             </div>
             <ul className="space-y-0.5">
-              {adminNavLinks.map((link) => {
+              {adminNavLinks
+                .filter((link) => !link.superAdminOnly || isSuperAdmin)
+                .map((link) => {
                 const isActive = pathname.startsWith(link.href);
                 const Icon = link.icon;
 
@@ -153,18 +148,16 @@ export function Sidebar() {
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#2E3038]">
             <span className="text-xs font-semibold text-[#C5CBD3]">
-              {mockUser.name
+              {(userName || "User")
                 .split(" ")
                 .map((n) => n[0])
-                .join("")}
+                .join("")
+                .toUpperCase()}
             </span>
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-xs font-bold text-white truncate">
-              {mockUser.name.toUpperCase()}
-            </p>
-            <p className="text-[10px] text-[#6B7280] truncate">
-              {mockUser.category} · {mockUser.team}
+              {(userName || "User").toUpperCase()}
             </p>
           </div>
         </div>
@@ -174,23 +167,6 @@ export function Sidebar() {
         >
           VIEW PROFILE &gt;
         </Link>
-      </div>
-
-      {/* Light/Dark Toggle */}
-      <div className="border-t border-[#2E3038] px-3 py-3">
-        <div className="flex items-center gap-2">
-          <Sun className="h-3.5 w-3.5 text-[#6B7280]" />
-          <span className="text-[10px] text-[#6B7280] uppercase tracking-wider">Light</span>
-          <button
-            onClick={toggleMode}
-            className="relative mx-1 h-5 w-9 rounded-full bg-[#2E3038] transition-colors"
-            aria-label={`Switch to ${mode === "light" ? "dark" : "light"} mode`}
-          >
-            <div className={`absolute top-0.5 h-4 w-4 rounded-full bg-[#B87333] transition-transform ${mode === "dark" ? "left-[18px]" : "left-0.5"}`} />
-          </button>
-          <Moon className="h-3.5 w-3.5 text-[#6B7280]" />
-          <span className="text-[10px] text-[#6B7280] uppercase tracking-wider">Dark</span>
-        </div>
       </div>
 
       {/* Logout */}

@@ -19,18 +19,9 @@ const handleGet: AuthenticatedHandler = async (request) => {
     const url = new URL(request.url);
     const leagueId = url.searchParams.get("leagueId");
 
-    if (!leagueId) {
-      return NextResponse.json(
-        {
-          status: 400,
-          code: "LEAGUE_REQUIRED",
-          message: "leagueId query parameter is required",
-        },
-        { status: 400 }
-      );
-    }
-
-    const races = await raceService.list(leagueId);
+    const races = leagueId
+      ? await raceService.list(leagueId)
+      : await raceService.listAll();
 
     return NextResponse.json({ data: races }, { status: 200 });
   } catch (error) {

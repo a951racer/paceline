@@ -7,6 +7,7 @@ export interface OrganizationDocument extends Document {
   type: OrganizationType;
   description?: string;
   memberIds: mongoose.Types.ObjectId[];
+  leagueIds: mongoose.Types.ObjectId[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -22,6 +23,11 @@ const OrganizationSchema = new Schema<OrganizationDocument>(
     memberIds: {
       type: [Schema.Types.ObjectId],
       ref: "Person",
+      default: [],
+    },
+    leagueIds: {
+      type: [Schema.Types.ObjectId],
+      ref: "League",
       default: [],
     },
   },

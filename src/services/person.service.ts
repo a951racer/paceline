@@ -21,7 +21,7 @@ const VALID_ROLES: Role[] = [
 /** Data for creating a new person */
 export interface CreatePersonData {
   name: { first: string; last: string };
-  email: string;
+  email?: string;
   phone?: string;
   roles?: Role[];
   securityRoles?: string[];
@@ -70,16 +70,25 @@ export class PersonService {
       this.validateRoles(data.roles);
     }
 
-    const person = await PersonModel.create({
+    const personData: Record<string, unknown> = {
       name: data.name,
-      email: data.email,
       phone: data.phone,
       roles: data.roles ?? [],
+      securityRoles: data.securityRoles ?? [],
+      personTypes: data.personTypes ?? [],
+      leagueIds: data.leagueIds ?? [],
       category: data.category,
       usaCyclingLicense: data.usaCyclingLicense,
       organizationIds: data.organizationIds ?? [],
       isRegistered: data.isRegistered ?? false,
-    });
+    };
+
+    // Only set email if provided (avoids unique index conflict for null emails)
+    if (data.email) {
+      personData.email = data.email;
+    }
+
+    const person = await PersonModel.create(personData);
 
     return person;
   }

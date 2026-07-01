@@ -23,6 +23,7 @@ export interface CreateOrganizationData {
   type: OrganizationType;
   description?: string;
   memberIds?: string[];
+  leagueIds?: string[];
 }
 
 /** Data for updating an organization */
@@ -30,6 +31,7 @@ export interface UpdateOrganizationData {
   name?: string;
   type?: OrganizationType;
   description?: string;
+  leagueIds?: string[];
 }
 
 export class OrganizationService {
@@ -54,6 +56,7 @@ export class OrganizationService {
         type: data.type,
         description: data.description,
         memberIds: data.memberIds ?? [],
+        leagueIds: data.leagueIds ?? [],
       });
 
       return organization;

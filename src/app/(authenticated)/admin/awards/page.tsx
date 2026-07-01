@@ -1,8 +1,11 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { Medal, Plus, Pencil, Trash2, X, CheckCircle2, XCircle } from "lucide-react";
 import { adminFetch } from "@/lib/admin-fetch";
+import { useLeagueStore } from "@/hooks/use-league-store";
+import { useSeasonStore } from "@/hooks/use-season-store";
+import { useUserStore } from "@/hooks/use-user-store";
 
 interface Award {
   _id: string;
@@ -10,6 +13,8 @@ interface Award {
   description: string;
   badgeUrl: string;
   nominationType: string;
+  leagueId?: string;
+  seasonId?: string;
   createdAt: string;
 }
 
@@ -33,6 +38,12 @@ export default function AdminAwardsPage() {
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [editingAward, setEditingAward] = useState<Award | null>(null);
+  const [leagueFilterMode, setLeagueFilterMode] = useState<"all" | "current" | "unassociated">("current");
+
+  const activeLeagueId = useLeagueStore((state) => state.activeLeagueId);
+  const availableLeagues = useLeagueStore((state) => state.availableLeagues);
+  const activeSeasonId = useSeasonStore((state) => state.activeSeasonId);
+  const isSuperAdmin = useUserStore((state) => state.isSuperAdmin);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -40,14 +51,73 @@ export default function AdminAwardsPage() {
     description: "",
     badgeUrl: "",
     nominationType: "admin_assigned",
+    leagueId: "",
+    seasonId: "",
   });
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Leagues and seasons for form dropdowns
+  const [allLeagues, setAllLeagues] = useState<{ _id: string; name: string }[]>([]);
+  const [formSeasons, setFormSeasons] = useState<{ _id: string; name: string }[]>([]);
+
+  // Fetch all leagues for dropdown
+  useEffect(() => {
+    const fetchLeagues = async () => {
+      try {
+        const res = await adminFetch("/api/admin/leagues");
+        if (res.ok) {
+          const json = await res.json();
+          setAllLeagues(json.data || []);
+        }
+      } catch {
+        // silently fail
+      }
+    };
+    fetchLeagues();
+  }, []);
+
+  // Determine which leagues to show in the dropdown
+  const leagueOptions = useMemo(() => {
+    if (isSuperAdmin) return allLeagues;
+    // League admins: only show their available leagues
+    return availableLeagues.map((l) => ({ _id: l.id, name: l.name }));
+  }, [isSuperAdmin, allLeagues, availableLeagues]);
+
+  // Fetch seasons when form's leagueId changes
+  useEffect(() => {
+    if (!formData.leagueId) { setFormSeasons([]); return; }
+    // Only run when modal is open
+    if (!showModal) return;
+    const fetchFormSeasons = async () => {
+      const res = await fetch(`/api/admin/seasons?leagueId=${formData.leagueId}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("accessToken")}` },
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setFormSeasons(json.data || []);
+      }
+    };
+    fetchFormSeasons();
+  }, [formData.leagueId, showModal]);
+
   const fetchAwards = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await adminFetch("/api/admin/awards");
+      // For super admin "all" mode, fetch without league scoping
+      let res;
+      if (isSuperAdmin && leagueFilterMode === "all") {
+        res = await fetch("/api/admin/awards", {
+          headers: { Authorization: `Bearer ${localStorage.getItem("accessToken")}` },
+        });
+      } else {
+        const params = new URLSearchParams();
+        if (activeLeagueId) params.set("leagueId", activeLeagueId);
+        if (activeSeasonId) params.set("seasonId", activeSeasonId);
+        res = await fetch(`/api/admin/awards?${params.toString()}`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem("accessToken")}` },
+        });
+      }
       if (!res.ok) throw new Error("Failed to fetch awards");
       const json = await res.json();
       setAwards(json.data || []);
@@ -56,7 +126,8 @@ export default function AdminAwardsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLeagueId, activeSeasonId, leagueFilterMode, isSuperAdmin]);
 
   const fetchNominations = useCallback(async () => {
     try {
@@ -80,9 +151,17 @@ export default function AdminAwardsPage() {
     }
   }, [activeTab, fetchAwards, fetchNominations]);
 
+  // For "unassociated" mode, filter client-side
+  const filteredAwards = useMemo(() => {
+    if (isSuperAdmin && leagueFilterMode === "unassociated") {
+      return awards.filter((a) => !a.leagueId);
+    }
+    return awards;
+  }, [awards, isSuperAdmin, leagueFilterMode]);
+
   const openCreateModal = () => {
     setEditingAward(null);
-    setFormData({ name: "", description: "", badgeUrl: "", nominationType: "admin_assigned" });
+    setFormData({ name: "", description: "", badgeUrl: "", nominationType: "admin_assigned", leagueId: activeLeagueId || "", seasonId: activeSeasonId || "" });
     setFormError(null);
     setShowModal(true);
   };
@@ -94,6 +173,8 @@ export default function AdminAwardsPage() {
       description: award.description,
       badgeUrl: award.badgeUrl || "",
       nominationType: award.nominationType,
+      leagueId: award.leagueId || "",
+      seasonId: award.seasonId || "",
     });
     setFormError(null);
     setShowModal(true);
@@ -106,9 +187,11 @@ export default function AdminAwardsPage() {
 
     const payload = {
       name: formData.name,
-      description: formData.description,
-      badgeUrl: formData.badgeUrl,
+      description: formData.description || undefined,
+      badgeUrl: formData.badgeUrl || undefined,
       nominationType: formData.nominationType,
+      leagueId: formData.leagueId,
+      seasonId: formData.seasonId,
     };
 
     try {
@@ -192,6 +275,44 @@ export default function AdminAwardsPage() {
         )}
       </div>
 
+      {/* League filter toggle - super admin only */}
+      {isSuperAdmin && (
+        <div className="flex gap-3 mb-4">
+          <div className="flex items-center rounded-md border border-[var(--border)] bg-[var(--background)] overflow-hidden">
+            <button
+              onClick={() => setLeagueFilterMode("all")}
+              className={`px-3 py-2 text-sm font-medium transition-colors ${
+                leagueFilterMode === "all"
+                  ? "bg-[var(--primary,#B87333)] text-white"
+                  : "text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setLeagueFilterMode("current")}
+              className={`px-3 py-2 text-sm font-medium transition-colors ${
+                leagueFilterMode === "current"
+                  ? "bg-[var(--primary,#B87333)] text-white"
+                  : "text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              Current League
+            </button>
+            <button
+              onClick={() => setLeagueFilterMode("unassociated")}
+              className={`px-3 py-2 text-sm font-medium transition-colors ${
+                leagueFilterMode === "unassociated"
+                  ? "bg-[var(--primary,#B87333)] text-white"
+                  : "text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              Unassociated
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="flex gap-1 mb-4 border-b border-[var(--border)]">
         <button
@@ -240,14 +361,14 @@ export default function AdminAwardsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--border)]">
-              {awards.length === 0 ? (
+              {filteredAwards.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center text-[var(--muted-foreground,#6b7280)]">
                     No awards found
                   </td>
                 </tr>
               ) : (
-                awards.map((award) => (
+                filteredAwards.map((award) => (
                   <tr key={award._id} className="hover:bg-[var(--muted,#f3f4f6)]/50">
                     <td className="px-4 py-3">
                       {award.badgeUrl ? (
@@ -384,7 +505,6 @@ export default function AdminAwardsPage() {
               <div>
                 <label className="block text-sm font-medium mb-1">Description</label>
                 <textarea
-                  required
                   value={formData.description}
                   onChange={(e) => setFormData((p) => ({ ...p, description: e.target.value }))}
                   className="w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm"
@@ -413,6 +533,41 @@ export default function AdminAwardsPage() {
                   placeholder="https://example.com/badge.png"
                   className="w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm"
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1">League</label>
+                  <select
+                    required
+                    value={formData.leagueId}
+                    onChange={(e) => setFormData((p) => ({ ...p, leagueId: e.target.value, seasonId: "" }))}
+                    className="w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm"
+                  >
+                    <option value="">Select a league</option>
+                    {leagueOptions.map((league) => (
+                      <option key={league._id} value={league._id}>
+                        {league.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Season</label>
+                  <select
+                    required
+                    value={formData.seasonId}
+                    onChange={(e) => setFormData((p) => ({ ...p, seasonId: e.target.value }))}
+                    className="w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm"
+                  >
+                    <option value="">Select a season</option>
+                    {formSeasons.map((season) => (
+                      <option key={season._id} value={season._id}>
+                        {season.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div className="flex justify-end gap-3 pt-2">

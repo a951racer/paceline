@@ -16,7 +16,7 @@ const raceResultService = new RaceResultService();
 const batchResultEntrySchema = z.array(
   z.object({
     racerId: z.string().min(1, "Racer ID is required"),
-    category: z.enum(["cat1", "cat2", "cat3", "cat4", "cat5", "beginner"]),
+    category: z.string().min(1, "Category is required"),
     position: z.number().int().min(1, "Position must be at least 1"),
     finishTime: z.number().min(0, "Finish time must be non-negative"),
     points: z.number().optional(),

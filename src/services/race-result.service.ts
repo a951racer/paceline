@@ -19,7 +19,7 @@ import type { Category } from "@/types";
 /** Data for entering a single race result */
 export interface RaceResultEntry {
   racerId: string;
-  category: Category;
+  category: string;
   position: number;
   finishTime: number;
   points?: number;

@@ -19,6 +19,29 @@ function extractLeagueId(url: string): string {
   return parts[parts.length - 1];
 }
 
+const handleGet: AuthenticatedHandler = async (request) => {
+  try {
+    const url = new URL(request.url);
+    const leagueId = extractLeagueId(url.pathname);
+
+    const league = await leagueService.getById(leagueId);
+    if (!league) {
+      return NextResponse.json(
+        { status: 404, code: "LEAGUE_NOT_FOUND", message: `League with id "${leagueId}" not found` },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ data: league }, { status: 200 });
+  } catch (error) {
+    console.error("[Admin Leagues GET/:id] Error:", error);
+    return NextResponse.json(
+      { status: 500, code: "INTERNAL_ERROR", message: "An unexpected error occurred" },
+      { status: 500 }
+    );
+  }
+};
+
 const handlePut: AuthenticatedHandler = async (request, context) => {
   try {
     // Super_Admin only
@@ -94,4 +117,5 @@ const handlePut: AuthenticatedHandler = async (request, context) => {
   }
 };
 
+export const GET = withRateLimit({ type: "admin" })(withAdmin(handleGet));
 export const PUT = withRateLimit({ type: "admin" })(withAdmin(handlePut));

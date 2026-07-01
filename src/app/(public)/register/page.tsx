@@ -66,6 +66,9 @@ export default function RegisterPage() {
         const data = await response.json();
         localStorage.setItem("accessToken", data.accessToken);
         localStorage.setItem("refreshToken", data.refreshToken);
+        if (data.user) {
+          localStorage.setItem("userName", `${data.user.name.first} ${data.user.name.last}`);
+        }
         router.push("/dashboard");
       } else {
         const data = await response.json();

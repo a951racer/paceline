@@ -1,12 +1,11 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { Users, Plus, Pencil, Trash2, X, Search, UserPlus, UserMinus } from "lucide-react";
 import { useLeagueStore } from "@/hooks/use-league-store";
+import { useUserStore } from "@/hooks/use-user-store";
 import { adminFetch } from "@/lib/admin-fetch";
-import { useReferenceData } from "@/hooks/use-reference-data";
-
-interface Person {
+import { useReferenceData } from "@/hooks/use-reference-data";interface Person {
   _id: string;
   name: { first: string; last: string };
   email: string;
@@ -55,8 +54,10 @@ export default function AdminPeoplePage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [enrollingId, setEnrollingId] = useState<string | null>(null);
+  const [leagueFilterMode, setLeagueFilterMode] = useState<"all" | "current" | "unassociated">("current");
 
   const activeLeagueId = useLeagueStore((state) => state.activeLeagueId);
+  const isSuperAdmin = useUserStore((state) => state.isSuperAdmin);
 
   const { activeItems: personTypes, isLoading: personTypesLoading, resolveKey: resolvePersonType } = useReferenceData("person_type");
   const { activeItems: categoryItems, isLoading: categoriesLoading, resolveKey: resolveCategory } = useReferenceData("category");
@@ -67,6 +68,7 @@ export default function AdminPeoplePage() {
     lastName: "",
     email: "",
     phone: "",
+    password: "",
     securityRoles: [] as string[],
     personTypes: [] as string[],
     leagueIds: [] as string[],
@@ -126,6 +128,19 @@ export default function AdminPeoplePage() {
     fetchEnrollments();
   }, [fetchEnrollments]);
 
+  // Filter people based on league toggle (super admin only)
+  const filteredPeople = useMemo(() => {
+    if (!isSuperAdmin || leagueFilterMode === "all") {
+      return people;
+    }
+    if (leagueFilterMode === "unassociated") {
+      return people.filter((p) => !p.leagueIds || p.leagueIds.length === 0);
+    }
+    // "current" mode
+    if (!activeLeagueId) return people;
+    return people.filter((p) => p.leagueIds && p.leagueIds.includes(activeLeagueId));
+  }, [people, isSuperAdmin, leagueFilterMode, activeLeagueId]);
+
   const isPersonEnrolled = (personId: string): boolean => {
     return enrollments.some(
       (e) => e.entityId === personId && e.entityType === "person" && e.isActive
@@ -171,7 +186,7 @@ export default function AdminPeoplePage() {
 
   const openCreateModal = () => {
     setEditingPerson(null);
-    setFormData({ firstName: "", lastName: "", email: "", phone: "", securityRoles: [], personTypes: [], leagueIds: activeLeagueId ? [activeLeagueId] : [], category: "" });
+    setFormData({ firstName: "", lastName: "", email: "", phone: "", password: "", securityRoles: [], personTypes: [], leagueIds: activeLeagueId ? [activeLeagueId] : [], category: "" });
     setFormError(null);
     setShowModal(true);
   };
@@ -183,6 +198,7 @@ export default function AdminPeoplePage() {
       lastName: person.name.last,
       email: person.email,
       phone: person.phone || "",
+      password: "",
       securityRoles: [...(person.securityRoles || [])],
       personTypes: [...(person.personTypes || [])],
       leagueIds: [...(person.leagueIds || [])],
@@ -226,8 +242,9 @@ export default function AdminPeoplePage() {
 
     const payload = {
       name: { first: formData.firstName, last: formData.lastName },
-      email: formData.email,
+      email: formData.email || undefined,
       phone: formData.phone || undefined,
+      password: formData.password || undefined,
       securityRoles: formData.securityRoles,
       personTypes: formData.personTypes,
       leagueIds: formData.leagueIds,
@@ -317,6 +334,40 @@ export default function AdminPeoplePage() {
             ))}
           </optgroup>
         </select>
+        {isSuperAdmin && (
+          <div className="flex items-center rounded-md border border-[var(--border)] bg-[var(--background)] overflow-hidden">
+            <button
+              onClick={() => setLeagueFilterMode("all")}
+              className={`px-3 py-2 text-sm font-medium transition-colors ${
+                leagueFilterMode === "all"
+                  ? "bg-[var(--primary,#B87333)] text-white"
+                  : "text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setLeagueFilterMode("current")}
+              className={`px-3 py-2 text-sm font-medium transition-colors ${
+                leagueFilterMode === "current"
+                  ? "bg-[var(--primary,#B87333)] text-white"
+                  : "text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              Current League
+            </button>
+            <button
+              onClick={() => setLeagueFilterMode("unassociated")}
+              className={`px-3 py-2 text-sm font-medium transition-colors ${
+                leagueFilterMode === "unassociated"
+                  ? "bg-[var(--primary,#B87333)] text-white"
+                  : "text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              Unassociated
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Error */}
@@ -346,14 +397,14 @@ export default function AdminPeoplePage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--border)]">
-              {people.length === 0 ? (
+              {filteredPeople.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-8 text-center text-[var(--muted-foreground,#6b7280)]">
                     No people found
                   </td>
                 </tr>
               ) : (
-                people.map((person) => {
+                filteredPeople.map((person) => {
                   const enrolled = isPersonEnrolled(person._id);
                   return (
                     <tr key={person._id} className="hover:bg-[var(--muted,#f3f4f6)]/50">
@@ -490,7 +541,6 @@ export default function AdminPeoplePage() {
                 <label className="block text-sm font-medium mb-1">Email</label>
                 <input
                   type="email"
-                  required
                   value={formData.email}
                   onChange={(e) => setFormData((p) => ({ ...p, email: e.target.value }))}
                   className="w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm"
@@ -503,6 +553,19 @@ export default function AdminPeoplePage() {
                   type="text"
                   value={formData.phone}
                   onChange={(e) => setFormData((p) => ({ ...p, phone: e.target.value }))}
+                  className="w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  {editingPerson ? "New Password" : "Password"}
+                </label>
+                <input
+                  type="password"
+                  value={formData.password}
+                  onChange={(e) => setFormData((p) => ({ ...p, password: e.target.value }))}
+                  placeholder={editingPerson ? "Leave blank to keep current" : "Min 8 characters"}
                   className="w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm"
                 />
               </div>

@@ -9,19 +9,23 @@ export interface AwardDocument extends Document {
   description: string;
   badgeUrl: string;
   nominationType: NominationType;
+  leagueId: mongoose.Types.ObjectId;
+  seasonId: mongoose.Types.ObjectId;
   createdAt: Date;
 }
 
 const AwardSchema = new Schema<AwardDocument>(
   {
     name: { type: String, required: true },
-    description: { type: String, required: true },
-    badgeUrl: { type: String, required: true },
+    description: { type: String },
+    badgeUrl: { type: String },
     nominationType: {
       type: String,
       required: true,
       enum: ["admin_assigned", "peer_nominated"],
     },
+    leagueId: { type: Schema.Types.ObjectId, ref: "League", required: true },
+    seasonId: { type: Schema.Types.ObjectId, ref: "Season", required: true },
   },
   { timestamps: { createdAt: true, updatedAt: false } }
 );

@@ -40,8 +40,9 @@ export const createPersonSchema = z.object({
     first: z.string().min(1, "First name is required"),
     last: z.string().min(1, "Last name is required"),
   }),
-  email: z.string().email("Must be a valid email address"),
+  email: z.string().email("Must be a valid email address").optional().or(z.literal("")),
   phone: z.string().optional(),
+  password: z.string().min(8, "Password must be at least 8 characters").optional(),
   /** @deprecated Use `securityRoles` and `personTypes` instead */
   roles: z
     .array(z.enum(roleValues))
@@ -77,6 +78,7 @@ export const updatePersonSchema = z.object({
     .optional(),
   email: z.string().email("Must be a valid email address").optional(),
   phone: z.string().optional(),
+  password: z.string().min(8, "Password must be at least 8 characters").optional(),
   /** @deprecated Use `securityRoles` and `personTypes` instead */
   roles: z.array(z.enum(roleValues)).optional(),
   /** Hardcoded security roles validated at compile time */

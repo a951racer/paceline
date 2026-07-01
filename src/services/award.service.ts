@@ -41,6 +41,8 @@ export class AwardService {
       description: data.description,
       badgeUrl: data.badgeUrl,
       nominationType: data.nominationType,
+      leagueId: data.leagueId,
+      seasonId: data.seasonId,
     });
 
     return award;

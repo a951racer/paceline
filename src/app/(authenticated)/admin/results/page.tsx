@@ -1,10 +1,12 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { ListOrdered, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { adminFetch } from "@/lib/admin-fetch";
 import { useReferenceData } from "@/hooks/use-reference-data";
+import { useLeagueStore } from "@/hooks/use-league-store";
+import { useUserStore } from "@/hooks/use-user-store";
 
 interface Race {
   _id: string;
@@ -12,6 +14,7 @@ interface Race {
   date: string;
   status: string;
   raceType: string;
+  leagueId?: string;
   location: { name: string };
 }
 
@@ -19,23 +22,38 @@ export default function AdminResultsPage() {
   const [races, setRaces] = useState<Race[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [leagueFilterMode, setLeagueFilterMode] = useState<"all" | "current" | "unassociated">("current");
+
+  const activeLeagueId = useLeagueStore((state) => state.activeLeagueId);
+  const isSuperAdmin = useUserStore((state) => state.isSuperAdmin);
   const { resolveKey: resolveRaceType } = useReferenceData("race_type");
 
+  const fetchRaces = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = isSuperAdmin && leagueFilterMode === "all"
+        ? await fetch("/api/admin/races", { headers: { Authorization: `Bearer ${localStorage.getItem("accessToken")}` } })
+        : await adminFetch("/api/admin/races");
+      if (!res.ok) throw new Error("Failed to fetch races");
+      const json = await res.json();
+      setRaces(json.data || []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An error occurred");
+    } finally {
+      setLoading(false);
+    }
+  }, [activeLeagueId, leagueFilterMode, isSuperAdmin]);
+
   useEffect(() => {
-    const fetchRaces = async () => {
-      try {
-        const res = await adminFetch("/api/admin/races");
-        if (!res.ok) throw new Error("Failed to fetch races");
-        const json = await res.json();
-        setRaces(json.data || []);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "An error occurred");
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchRaces();
-  }, []);
+  }, [fetchRaces]);
+
+  const filteredRaces = useMemo(() => {
+    if (isSuperAdmin && leagueFilterMode === "unassociated") {
+      return races.filter((r) => !r.leagueId);
+    }
+    return races;
+  }, [races, isSuperAdmin, leagueFilterMode]);
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -49,6 +67,44 @@ export default function AdminResultsPage() {
         Select a race to enter or view results.
       </p>
 
+      {/* League filter toggle - super admin only */}
+      {isSuperAdmin && (
+        <div className="flex gap-3 mb-4">
+          <div className="flex items-center rounded-md border border-[var(--border)] bg-[var(--background)] overflow-hidden">
+            <button
+              onClick={() => setLeagueFilterMode("all")}
+              className={`px-3 py-2 text-sm font-medium transition-colors ${
+                leagueFilterMode === "all"
+                  ? "bg-[var(--primary,#B87333)] text-white"
+                  : "text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setLeagueFilterMode("current")}
+              className={`px-3 py-2 text-sm font-medium transition-colors ${
+                leagueFilterMode === "current"
+                  ? "bg-[var(--primary,#B87333)] text-white"
+                  : "text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              Current League
+            </button>
+            <button
+              onClick={() => setLeagueFilterMode("unassociated")}
+              className={`px-3 py-2 text-sm font-medium transition-colors ${
+                leagueFilterMode === "unassociated"
+                  ? "bg-[var(--primary,#B87333)] text-white"
+                  : "text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              Unassociated
+            </button>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="mb-4 rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
           {error}
@@ -61,10 +117,10 @@ export default function AdminResultsPage() {
         </div>
       ) : (
         <div className="space-y-2">
-          {races.length === 0 ? (
+          {filteredRaces.length === 0 ? (
             <p className="text-sm text-[var(--muted-foreground,#6b7280)]">No races available.</p>
           ) : (
-            races.map((race) => (
+            filteredRaces.map((race) => (
               <Link
                 key={race._id}
                 href={`/admin/races/${race._id}/results`}

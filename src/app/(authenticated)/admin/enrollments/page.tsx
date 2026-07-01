@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { useLeagueStore } from "@/hooks/use-league-store";
+import { useSeasonStore } from "@/hooks/use-season-store";
 import { adminFetch } from "@/lib/admin-fetch";
 
 interface Enrollment {
@@ -56,19 +57,21 @@ export default function EnrollmentManagementPage() {
   const [availablePersons, setAvailablePersons] = useState<Person[]>([]);
   const [availableOrgs, setAvailableOrgs] = useState<Organization[]>([]);
   const [loadingAvailable, setLoadingAvailable] = useState(false);
-  const [selectedEntityId, setSelectedEntityId] = useState("");
+  const [selectedEntityIds, setSelectedEntityIds] = useState<string[]>([]);
   const [enrolling, setEnrolling] = useState(false);
   const [enrollError, setEnrollError] = useState<string | null>(null);
+  const [enrollSearch, setEnrollSearch] = useState("");
   const [removingId, setRemovingId] = useState<string | null>(null);
 
   const activeLeagueId = useLeagueStore((state) => state.activeLeagueId);
   const activeLeagueName = useLeagueStore((state) => state.activeLeagueName);
+  const activeSeasonId = useSeasonStore((state) => state.activeSeasonId);
 
   const fetchEnrollments = useCallback(async () => {
-    if (!activeLeagueId) return;
+    if (!activeLeagueId || !activeSeasonId) return;
     try {
       setLoading(true);
-      const res = await adminFetch("/api/admin/enrollments");
+      const res = await adminFetch(`/api/admin/enrollments?seasonId=${activeSeasonId}`);
       if (!res.ok) throw new Error("Failed to fetch enrollments");
       const json = await res.json();
       setEnrollments(json.data || []);
@@ -77,7 +80,8 @@ export default function EnrollmentManagementPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeLeagueId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLeagueId, activeSeasonId]);
 
   useEffect(() => {
     fetchEnrollments();
@@ -88,7 +92,8 @@ export default function EnrollmentManagementPage() {
 
   const openEnrollModal = async (type: "person" | "organization") => {
     setEnrollType(type);
-    setSelectedEntityId("");
+    setSelectedEntityIds([]);
+    setEnrollSearch("");
     setEnrollError(null);
     setShowEnrollModal(true);
     setLoadingAvailable(true);
@@ -114,9 +119,30 @@ export default function EnrollmentManagementPage() {
     }
   };
 
+  // Filter out already-enrolled entities and apply search
+  const unenrolledPersons = availablePersons
+    .filter((p) => !personEnrollments.some((e) => e.entityId === p._id))
+    .filter((p) => {
+      if (!enrollSearch) return true;
+      const fullName = `${p.name.first} ${p.name.last}`.toLowerCase();
+      return fullName.includes(enrollSearch.toLowerCase());
+    });
+  const unenrolledOrgs = availableOrgs
+    .filter((o) => !orgEnrollments.some((e) => e.entityId === o._id))
+    .filter((o) => {
+      if (!enrollSearch) return true;
+      return o.name.toLowerCase().includes(enrollSearch.toLowerCase());
+    });
+
+  const toggleEntitySelection = (id: string) => {
+    setSelectedEntityIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
   const handleEnroll = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedEntityId || !activeLeagueId) return;
+    if (selectedEntityIds.length === 0 || !activeLeagueId) return;
     setEnrolling(true);
     setEnrollError(null);
 
@@ -125,20 +151,24 @@ export default function EnrollmentManagementPage() {
         enrollType === "person"
           ? "/api/admin/enrollments/persons"
           : "/api/admin/enrollments/organizations";
-      const body =
-        enrollType === "person"
-          ? { personId: selectedEntityId, leagueId: activeLeagueId }
-          : { organizationId: selectedEntityId, leagueId: activeLeagueId };
 
-      const res = await adminFetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      // Enroll each selected entity
+      for (const entityId of selectedEntityIds) {
+        const body =
+          enrollType === "person"
+            ? { personId: entityId, seasonId: activeSeasonId }
+            : { organizationId: entityId, seasonId: activeSeasonId };
 
-      if (!res.ok) {
-        const json = await res.json();
-        throw new Error(json.message || "Failed to enroll");
+        const res = await adminFetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+
+        if (!res.ok) {
+          const json = await res.json();
+          throw new Error(json.message || `Failed to enroll entity ${entityId}`);
+        }
       }
 
       setShowEnrollModal(false);
@@ -221,7 +251,7 @@ export default function EnrollmentManagementPage() {
           onClick={() => setActiveTab("persons")}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             activeTab === "persons"
-              ? "border-[var(--color-primary,#3b82f6)] text-[var(--color-primary,#3b82f6)]"
+              ? "border-[var(--primary,#B87333)] text-[var(--foreground,#F0F1F3)]"
               : "border-transparent text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground)]"
           }`}
         >
@@ -231,7 +261,7 @@ export default function EnrollmentManagementPage() {
           onClick={() => setActiveTab("organizations")}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             activeTab === "organizations"
-              ? "border-[var(--color-primary,#3b82f6)] text-[var(--color-primary,#3b82f6)]"
+              ? "border-[var(--primary,#B87333)] text-[var(--foreground,#F0F1F3)]"
               : "border-transparent text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground)]"
           }`}
         >
@@ -303,7 +333,7 @@ export default function EnrollmentManagementPage() {
       {/* Enroll Modal */}
       {showEnrollModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-lg rounded-lg bg-[var(--background)] p-6 shadow-xl">
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-lg bg-[var(--background)] p-6 shadow-xl">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">
                 Enroll {enrollType === "person" ? "Person" : "Organization"}
@@ -326,30 +356,72 @@ export default function EnrollmentManagementPage() {
             ) : (
               <form onSubmit={handleEnroll} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">
-                    {enrollType === "person" ? "Select Person" : "Select Organization"}
+                  <label className="block text-sm font-medium mb-2">
+                    {enrollType === "person" ? "Select Persons" : "Select Organizations"} to Enroll
                   </label>
-                  <select
-                    required
-                    value={selectedEntityId}
-                    onChange={(e) => setSelectedEntityId(e.target.value)}
-                    className="w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm"
-                  >
-                    <option value="">
-                      Choose {enrollType === "person" ? "a person" : "an organization"}...
-                    </option>
-                    {enrollType === "person"
-                      ? availablePersons.map((p) => (
-                          <option key={p._id} value={p._id}>
-                            {p.name.first} {p.name.last} ({p.email})
-                          </option>
+                  <div className="relative mb-2">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--muted-foreground,#6b7280)]" />
+                    <input
+                      type="text"
+                      placeholder="Filter by name..."
+                      value={enrollSearch}
+                      onChange={(e) => setEnrollSearch(e.target.value)}
+                      className="w-full rounded-md border border-[var(--border)] bg-[var(--background)] pl-9 pr-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div className="max-h-[400px] overflow-y-auto rounded-md border border-[var(--border)] divide-y divide-[var(--border)]">
+                    {enrollType === "person" ? (
+                      unenrolledPersons.length === 0 ? (
+                        <p className="px-3 py-4 text-sm text-[var(--muted-foreground,#6b7280)] text-center">
+                          All persons are already enrolled
+                        </p>
+                      ) : (
+                        unenrolledPersons.map((p) => (
+                          <label
+                            key={p._id}
+                            className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-[var(--muted,#f3f4f6)]"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedEntityIds.includes(p._id)}
+                              onChange={() => toggleEntitySelection(p._id)}
+                              className="rounded"
+                            />
+                            <span className="text-sm">
+                              {p.name.first} {p.name.last}
+                              {p.email && <span className="text-[var(--muted-foreground,#6b7280)] ml-1">({p.email})</span>}
+                            </span>
+                          </label>
                         ))
-                      : availableOrgs.map((o) => (
-                          <option key={o._id} value={o._id}>
-                            {o.name}
-                          </option>
-                        ))}
-                  </select>
+                      )
+                    ) : (
+                      unenrolledOrgs.length === 0 ? (
+                        <p className="px-3 py-4 text-sm text-[var(--muted-foreground,#6b7280)] text-center">
+                          All organizations are already enrolled
+                        </p>
+                      ) : (
+                        unenrolledOrgs.map((o) => (
+                          <label
+                            key={o._id}
+                            className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-[var(--muted,#f3f4f6)]"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedEntityIds.includes(o._id)}
+                              onChange={() => toggleEntitySelection(o._id)}
+                              className="rounded"
+                            />
+                            <span className="text-sm">{o.name}</span>
+                          </label>
+                        ))
+                      )
+                    )}
+                  </div>
+                  {selectedEntityIds.length > 0 && (
+                    <p className="mt-1 text-xs text-[var(--muted-foreground,#6b7280)]">
+                      {selectedEntityIds.length} selected
+                    </p>
+                  )}
                 </div>
 
                 <p className="text-xs text-[var(--muted-foreground,#6b7280)]">
@@ -366,10 +438,10 @@ export default function EnrollmentManagementPage() {
                   </button>
                   <button
                     type="submit"
-                    disabled={enrolling || !selectedEntityId}
+                    disabled={enrolling || selectedEntityIds.length === 0}
                     className="rounded-md bg-[var(--color-primary,#3b82f6)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
                   >
-                    {enrolling ? "Enrolling..." : "Enroll"}
+                    {enrolling ? "Enrolling..." : `Enroll (${selectedEntityIds.length})`}
                   </button>
                 </div>
               </form>
