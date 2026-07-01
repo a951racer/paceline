@@ -10,6 +10,9 @@ import {
 } from "@/middleware/league-auth";
 import { withRateLimit } from "@/middleware/rate-limit";
 import { EnrollmentService } from "@/services/enrollment.service";
+import { PersonModel } from "@/models/person.model";
+import { OrganizationModel } from "@/models/organization.model";
+import { connectMongoDB } from "@/lib/db/mongodb";
 import type { EnrollmentEntityType } from "@/models/enrollment.model";
 
 const enrollmentService = new EnrollmentService();
@@ -37,7 +40,38 @@ const handleGet: LeagueAuthorizedHandler = async (request, context) => {
       type || undefined
     );
 
-    return NextResponse.json({ data: enrollments }, { status: 200 });
+    // Resolve entity names
+    await connectMongoDB();
+    const personIds = enrollments
+      .filter((e) => e.entityType === "person")
+      .map((e) => e.entityId);
+    const orgIds = enrollments
+      .filter((e) => e.entityType === "organization")
+      .map((e) => e.entityId);
+
+    const [persons, orgs] = await Promise.all([
+      personIds.length > 0
+        ? PersonModel.find({ _id: { $in: personIds } }, { name: 1 }).lean()
+        : Promise.resolve([]),
+      orgIds.length > 0
+        ? OrganizationModel.find({ _id: { $in: orgIds } }, { name: 1 }).lean()
+        : Promise.resolve([]),
+    ]);
+
+    const nameMap = new Map<string, string>();
+    for (const p of persons) {
+      nameMap.set(p._id.toString(), `${p.name.first} ${p.name.last}`);
+    }
+    for (const o of orgs) {
+      nameMap.set(o._id.toString(), o.name);
+    }
+
+    const enriched = enrollments.map((e) => ({
+      ...e.toObject(),
+      entityName: nameMap.get(e.entityId.toString()) || e.entityId.toString(),
+    }));
+
+    return NextResponse.json({ data: enriched }, { status: 200 });
   } catch (error) {
     console.error("[Admin Enrollments GET] Error:", error);
     return NextResponse.json(

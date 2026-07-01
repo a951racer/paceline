@@ -77,7 +77,7 @@ export function LeagueSelector() {
         aria-label="Select league"
       >
         <Globe className="h-4 w-4 text-[#9CA3AF]" />
-        <span className="uppercase tracking-wide max-w-[200px] truncate">
+        <span className="uppercase tracking-wide max-w-[600px] truncate">
           {displayName}
         </span>
         <ChevronDown
@@ -89,7 +89,7 @@ export function LeagueSelector() {
         <div
           role="listbox"
           aria-label="Available leagues"
-          className="absolute left-0 top-full z-50 mt-1 w-64 rounded-lg border border-[#2E3038] bg-[#1A1B1F] shadow-xl"
+          className="absolute left-0 top-full z-50 mt-1 w-96 rounded-lg border border-[#2E3038] bg-[#1A1B1F] shadow-xl"
         >
           <div className="p-1">
             {availableLeagues.map((league) => (

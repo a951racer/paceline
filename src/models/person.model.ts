@@ -51,7 +51,7 @@ const PersonSchema = new Schema<PersonDocument>(
       first: { type: String, required: true },
       last: { type: String, required: true },
     },
-    email: { type: String, required: true, unique: true },
+    email: { type: String, unique: true, sparse: true },
     phone: { type: String },
     roles: {
       type: [String],

@@ -7,6 +7,7 @@ export const createOrganizationSchema = z.object({
   type: z.string().min(1, "Organization type is required"),
   description: z.string().optional(),
   memberIds: z.array(z.string()).default([]),
+  leagueIds: z.array(z.string()).default([]),
 });
 
 // --- Update Schema (PUT) ---
@@ -16,6 +17,7 @@ export const updateOrganizationSchema = z.object({
   type: z.string().min(1, "Organization type is required").optional(),
   description: z.string().optional(),
   memberIds: z.array(z.string()).optional(),
+  leagueIds: z.array(z.string()).optional(),
 });
 
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;

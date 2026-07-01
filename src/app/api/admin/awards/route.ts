@@ -14,10 +14,18 @@ import { AwardModel } from "@/models/award.model";
 
 const awardService = new AwardService();
 
-const handleGet: AuthenticatedHandler = async () => {
+const handleGet: AuthenticatedHandler = async (request) => {
   try {
     await connectMongoDB();
-    const awards = await AwardModel.find().sort({ createdAt: -1 });
+    const url = new URL(request.url);
+    const leagueId = url.searchParams.get("leagueId");
+    const seasonId = url.searchParams.get("seasonId");
+
+    const query: Record<string, unknown> = {};
+    if (leagueId) query.leagueId = leagueId;
+    if (seasonId) query.seasonId = seasonId;
+
+    const awards = await AwardModel.find(query).sort({ createdAt: -1 });
 
     return NextResponse.json({ data: awards }, { status: 200 });
   } catch (error) {

@@ -1,9 +1,11 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { Building2, Plus, Pencil, Trash2, X, Search, UserPlus, UserMinus } from "lucide-react";
 import { adminFetch } from "@/lib/admin-fetch";
 import { useReferenceData } from "@/hooks/use-reference-data";
+import { useLeagueStore } from "@/hooks/use-league-store";
+import { useUserStore } from "@/hooks/use-user-store";
 
 interface Organization {
   _id: string;
@@ -11,6 +13,7 @@ interface Organization {
   type: string;
   description?: string;
   memberIds: string[];
+  leagueIds: string[];
   createdAt: string;
 }
 
@@ -27,6 +30,10 @@ export default function AdminOrganizationsPage() {
   const [showModal, setShowModal] = useState(false);
   const [editingOrg, setEditingOrg] = useState<Organization | null>(null);
   const [typeFilter, setTypeFilter] = useState("");
+  const [leagueFilterMode, setLeagueFilterMode] = useState<"all" | "current" | "unassociated">("current");
+
+  const activeLeagueId = useLeagueStore((state) => state.activeLeagueId);
+  const isSuperAdmin = useUserStore((state) => state.isSuperAdmin);
 
   // Reference data for organization types
   const { activeItems: orgTypes, isLoading: orgTypesLoading, resolveKey: resolveOrgType } = useReferenceData("organization_type");
@@ -38,9 +45,10 @@ export default function AdminOrganizationsPage() {
   const [loadingPeople, setLoadingPeople] = useState(false);
 
   // Form state
-  const [formData, setFormData] = useState({ name: "", type: "team", description: "" });
+  const [formData, setFormData] = useState({ name: "", type: "team", description: "", leagueIds: [] as string[] });
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [leagues, setLeagues] = useState<{ _id: string; name: string; isActive: boolean }[]>([]);
 
   const fetchOrganizations = useCallback(async () => {
     try {
@@ -58,9 +66,38 @@ export default function AdminOrganizationsPage() {
     }
   }, [typeFilter]);
 
+  const fetchLeagues = useCallback(async () => {
+    try {
+      const res = await adminFetch("/api/admin/leagues");
+      if (res.ok) {
+        const json = await res.json();
+        setLeagues(json.data || []);
+      }
+    } catch {
+      // Non-critical
+    }
+  }, []);
+
   useEffect(() => {
     fetchOrganizations();
-  }, [fetchOrganizations]);
+    fetchLeagues();
+  }, [fetchOrganizations, fetchLeagues]);
+
+  // Filter organizations based on league toggle
+  const filteredOrganizations = useMemo(() => {
+    if (isSuperAdmin) {
+      if (leagueFilterMode === "all") return organizations;
+      if (leagueFilterMode === "unassociated") {
+        return organizations.filter((o) => !o.leagueIds || o.leagueIds.length === 0);
+      }
+      // "current" mode
+      if (!activeLeagueId) return organizations;
+      return organizations.filter((o) => o.leagueIds && o.leagueIds.includes(activeLeagueId));
+    }
+    // League admins: only show orgs in the current league
+    if (!activeLeagueId) return organizations;
+    return organizations.filter((o) => o.leagueIds && o.leagueIds.includes(activeLeagueId));
+  }, [organizations, isSuperAdmin, leagueFilterMode, activeLeagueId]);
 
   const fetchPeople = async (search: string) => {
     try {
@@ -80,19 +117,26 @@ export default function AdminOrganizationsPage() {
 
   const openCreateModal = () => {
     setEditingOrg(null);
-    setFormData({ name: "", type: orgTypes.length > 0 ? orgTypes[0].key : "", description: "" });
+    setFormData({ name: "", type: orgTypes.length > 0 ? orgTypes[0].key : "", description: "", leagueIds: activeLeagueId ? [activeLeagueId] : [] });
     setFormError(null);
     setShowModal(true);
   };
 
   const openEditModal = (org: Organization) => {
     setEditingOrg(org);
-    setFormData({ name: org.name, type: org.type, description: org.description || "" });
+    setFormData({ name: org.name, type: org.type, description: org.description || "", leagueIds: [...(org.leagueIds || [])] });
     setFormError(null);
     setShowModal(true);
   };
 
-  const openMembersPanel = (org: Organization) => {
+  const handleLeagueToggle = (leagueId: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      leagueIds: prev.leagueIds.includes(leagueId)
+        ? prev.leagueIds.filter((id) => id !== leagueId)
+        : [...prev.leagueIds, leagueId],
+    }));
+  };  const openMembersPanel = (org: Organization) => {
     setManagingMembers(org);
     setMemberSearch("");
     fetchPeople("");
@@ -107,6 +151,7 @@ export default function AdminOrganizationsPage() {
       name: formData.name,
       type: formData.type,
       description: formData.description || undefined,
+      leagueIds: formData.leagueIds,
     };
 
     try {
@@ -219,6 +264,40 @@ export default function AdminOrganizationsPage() {
             <option key={t.key} value={t.key}>{t.label}</option>
           ))}
         </select>
+        {isSuperAdmin && (
+          <div className="flex items-center rounded-md border border-[var(--border)] bg-[var(--background)] overflow-hidden">
+            <button
+              onClick={() => setLeagueFilterMode("all")}
+              className={`px-3 py-2 text-sm font-medium transition-colors ${
+                leagueFilterMode === "all"
+                  ? "bg-[var(--primary,#B87333)] text-white"
+                  : "text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setLeagueFilterMode("current")}
+              className={`px-3 py-2 text-sm font-medium transition-colors ${
+                leagueFilterMode === "current"
+                  ? "bg-[var(--primary,#B87333)] text-white"
+                  : "text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              Current League
+            </button>
+            <button
+              onClick={() => setLeagueFilterMode("unassociated")}
+              className={`px-3 py-2 text-sm font-medium transition-colors ${
+                leagueFilterMode === "unassociated"
+                  ? "bg-[var(--primary,#B87333)] text-white"
+                  : "text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              Unassociated
+            </button>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -244,14 +323,14 @@ export default function AdminOrganizationsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--border)]">
-              {organizations.length === 0 ? (
+              {filteredOrganizations.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="px-4 py-8 text-center text-[var(--muted-foreground,#6b7280)]">
                     No organizations found
                   </td>
                 </tr>
               ) : (
-                organizations.map((org) => (
+                filteredOrganizations.map((org) => (
                   <tr key={org._id} className="hover:bg-[var(--muted,#f3f4f6)]/50">
                     <td className="px-4 py-3 font-medium">{org.name}</td>
                     <td className="px-4 py-3 capitalize">{resolveOrgType(org.type)}</td>
@@ -346,6 +425,29 @@ export default function AdminOrganizationsPage() {
                   className="w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm"
                   rows={3}
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">Leagues</label>
+                <div className="flex flex-wrap gap-2">
+                  {leagues.filter((l) => l.isActive).map((league) => (
+                    <label
+                      key={league._id}
+                      className="flex items-center gap-1.5 rounded-md border border-[var(--border)] px-3 py-1.5 text-sm cursor-pointer hover:bg-[var(--muted,#f3f4f6)]"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={formData.leagueIds.includes(league._id)}
+                        onChange={() => handleLeagueToggle(league._id)}
+                        className="rounded"
+                      />
+                      <span>{league.name}</span>
+                    </label>
+                  ))}
+                  {leagues.filter((l) => l.isActive).length === 0 && (
+                    <p className="text-sm text-[var(--muted-foreground,#6b7280)]">No leagues available</p>
+                  )}
+                </div>
               </div>
 
               <div className="flex justify-end gap-3 pt-2">

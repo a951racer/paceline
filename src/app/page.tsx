@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Trophy, TrendingUp, Users, Calendar, ChevronRight, Lock, User } from "lucide-react";
 import { PublicLayout } from "@/components/layout/public-layout";
 import { PublicFooter } from "@/components/layout/public-footer";
+import { useUserStore } from "@/hooks/use-user-store";
 
 function GoogleIcon({ className }: { className?: string }) {
   return (
@@ -63,6 +64,7 @@ const featureHighlights = [
 
 export default function LandingPage() {
   const router = useRouter();
+  const setUser = useUserStore((state) => state.setUser);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -85,6 +87,16 @@ export default function LandingPage() {
         const data = await response.json();
         localStorage.setItem("accessToken", data.accessToken);
         localStorage.setItem("refreshToken", data.refreshToken);
+        if (data.user) {
+          localStorage.setItem("userName", `${data.user.name.first} ${data.user.name.last}`);
+          setUser({
+            userId: data.user.id,
+            email: data.user.email,
+            name: `${data.user.name.first} ${data.user.name.last}`,
+            roles: data.user.roles || [],
+            adminScope: data.user.adminScope,
+          });
+        }
         router.push("/dashboard");
       } else {
         const data = await response.json();

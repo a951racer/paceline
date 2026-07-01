@@ -140,6 +140,7 @@ export interface Organization {
   type: OrganizationType;
   description?: string;
   memberIds: string[];
+  leagueIds: string[];
   createdAt: Date;
   updatedAt: Date;
 }

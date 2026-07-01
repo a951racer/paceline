@@ -7,18 +7,22 @@ const nominationTypeValues = ["admin_assigned", "peer_nominated"] as const;
 
 export const createAwardSchema = z.object({
   name: z.string().min(1, "Award name is required"),
-  description: z.string().min(1, "Description is required"),
-  badgeUrl: z.string().url("Badge URL must be a valid URL"),
+  description: z.string().optional(),
+  badgeUrl: z.string().url("Badge URL must be a valid URL").optional().or(z.literal("")),
   nominationType: z.enum(nominationTypeValues),
+  leagueId: z.string().min(1, "League ID is required"),
+  seasonId: z.string().min(1, "Season ID is required"),
 });
 
 // --- Update Schema (PUT) ---
 
 export const updateAwardSchema = z.object({
   name: z.string().min(1, "Award name is required").optional(),
-  description: z.string().min(1, "Description is required").optional(),
-  badgeUrl: z.string().url("Badge URL must be a valid URL").optional(),
+  description: z.string().optional(),
+  badgeUrl: z.string().url("Badge URL must be a valid URL").optional().or(z.literal("")),
   nominationType: z.enum(nominationTypeValues).optional(),
+  leagueId: z.string().min(1).optional(),
+  seasonId: z.string().min(1).optional(),
 });
 
 export type CreateAwardInput = z.infer<typeof createAwardSchema>;

@@ -1,9 +1,11 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { Flag, Plus, Pencil, Trash2, X, ListOrdered } from "lucide-react";
 import Link from "next/link";
 import { useLeagueStore } from "@/hooks/use-league-store";
+import { useUserStore } from "@/hooks/use-user-store";
+import { useSeasonStore } from "@/hooks/use-season-store";
 import { adminFetch } from "@/lib/admin-fetch";
 import { useReferenceData } from "@/hooks/use-reference-data";
 
@@ -14,6 +16,7 @@ interface Race {
   location: { name: string; address?: string };
   raceType: string;
   categories: string[];
+  leagueId?: string;
   seasonId?: string;
   status: string;
   officialIds: string[];
@@ -44,8 +47,11 @@ export default function AdminRacesPage() {
   const [editingRace, setEditingRace] = useState<Race | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  const [leagueFilterMode, setLeagueFilterMode] = useState<"all" | "current" | "unassociated">("current");
 
   const activeLeagueId = useLeagueStore((state) => state.activeLeagueId);
+  const isSuperAdmin = useUserStore((state) => state.isSuperAdmin);
+  const activeSeasonId = useSeasonStore((state) => state.activeSeasonId);
 
   const { activeItems: raceTypes, isLoading: raceTypesLoading, resolveKey: resolveRaceType } = useReferenceData("race_type");
   const { activeItems: categories, isLoading: categoriesLoading } = useReferenceData("category");
@@ -67,7 +73,13 @@ export default function AdminRacesPage() {
   const fetchRaces = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await adminFetch("/api/admin/races");
+      // For super admin "all" mode, fetch without leagueId scoping
+      const url = isSuperAdmin && leagueFilterMode === "all"
+        ? "/api/admin/races?all=true"
+        : "/api/admin/races";
+      const res = isSuperAdmin && leagueFilterMode === "all"
+        ? await fetch(url, { headers: { Authorization: `Bearer ${localStorage.getItem("accessToken")}` } })
+        : await adminFetch("/api/admin/races");
       if (!res.ok) throw new Error("Failed to fetch races");
       const json = await res.json();
       let data = json.data || [];
@@ -80,7 +92,7 @@ export default function AdminRacesPage() {
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeLeagueId, statusFilter, typeFilter]);
+  }, [activeLeagueId, statusFilter, typeFilter, leagueFilterMode, isSuperAdmin]);
 
   const fetchSeasons = useCallback(async () => {
     try {
@@ -99,6 +111,14 @@ export default function AdminRacesPage() {
     fetchSeasons();
   }, [fetchRaces, fetchSeasons]);
 
+  // For "unassociated" mode, filter client-side (races without leagueId)
+  const filteredRaces = useMemo(() => {
+    if (isSuperAdmin && leagueFilterMode === "unassociated") {
+      return races.filter((r) => !r.leagueId);
+    }
+    return races;
+  }, [races, isSuperAdmin, leagueFilterMode]);
+
   const openCreateModal = () => {
     setEditingRace(null);
     setFormData({
@@ -108,7 +128,7 @@ export default function AdminRacesPage() {
       locationAddress: "",
       raceType: raceTypes.length > 0 ? raceTypes[0].key : "",
       categories: [],
-      seasonId: "",
+      seasonId: activeSeasonId || "",
       status: "scheduled",
     });
     setFormError(null);
@@ -230,6 +250,40 @@ export default function AdminRacesPage() {
             <option key={t.key} value={t.key}>{t.label}</option>
           ))}
         </select>
+        {isSuperAdmin && (
+          <div className="flex items-center rounded-md border border-[var(--border)] bg-[var(--background)] overflow-hidden">
+            <button
+              onClick={() => setLeagueFilterMode("all")}
+              className={`px-3 py-2 text-sm font-medium transition-colors ${
+                leagueFilterMode === "all"
+                  ? "bg-[var(--primary,#B87333)] text-white"
+                  : "text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setLeagueFilterMode("current")}
+              className={`px-3 py-2 text-sm font-medium transition-colors ${
+                leagueFilterMode === "current"
+                  ? "bg-[var(--primary,#B87333)] text-white"
+                  : "text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              Current League
+            </button>
+            <button
+              onClick={() => setLeagueFilterMode("unassociated")}
+              className={`px-3 py-2 text-sm font-medium transition-colors ${
+                leagueFilterMode === "unassociated"
+                  ? "bg-[var(--primary,#B87333)] text-white"
+                  : "text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              Unassociated
+            </button>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -257,14 +311,14 @@ export default function AdminRacesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--border)]">
-              {races.length === 0 ? (
+              {filteredRaces.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-8 text-center text-[var(--muted-foreground,#6b7280)]">
                     No races found
                   </td>
                 </tr>
               ) : (
-                races.map((race) => (
+                filteredRaces.map((race) => (
                   <tr key={race._id} className="hover:bg-[var(--muted,#f3f4f6)]/50">
                     <td className="px-4 py-3 font-medium">{race.name}</td>
                     <td className="px-4 py-3">{race.date ? new Date(race.date).toLocaleDateString() : "—"}</td>

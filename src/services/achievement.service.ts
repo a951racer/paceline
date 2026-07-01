@@ -32,6 +32,8 @@ export class AchievementService {
       description: data.description,
       triggerCriteria: data.triggerCriteria,
       badgeUrl: data.badgeUrl,
+      leagueId: data.leagueId,
+      seasonId: data.seasonId,
     });
 
     return achievement;

@@ -207,6 +207,14 @@ export class RaceService {
   }
 
   /**
+   * List all races across all leagues. For super admin use.
+   */
+  async listAll(): Promise<RaceDocument[]> {
+    await connectMongoDB();
+    return RaceModel.find({}).sort({ date: -1 });
+  }
+
+  /**
    * Find the season whose date range contains the given date within the specified league.
    * Throws if no matching season is found.
    *

@@ -3,6 +3,14 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { Trophy, Plus, Pencil, Trash2, X } from "lucide-react";
 import { adminFetch } from "@/lib/admin-fetch";
+import { useLeagueStore } from "@/hooks/use-league-store";
+import { useSeasonStore } from "@/hooks/use-season-store";
+
+interface Season {
+  _id: string;
+  name: string;
+  isActive: boolean;
+}
 
 interface Competition {
   _id: string;
@@ -40,6 +48,9 @@ export default function AdminCompetitionsPage() {
   const [showModal, setShowModal] = useState(false);
   const [editingCompetition, setEditingCompetition] = useState<Competition | null>(null);
 
+  const activeLeagueId = useLeagueStore((state) => state.activeLeagueId);
+  const activeSeasonId = useSeasonStore((state) => state.activeSeasonId);
+
   // Form state
   const [formData, setFormData] = useState({
     name: "",
@@ -55,6 +66,7 @@ export default function AdminCompetitionsPage() {
   });
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [seasons, setSeasons] = useState<Season[]>([]);
 
   const fetchCompetitions = useCallback(async () => {
     try {
@@ -68,18 +80,33 @@ export default function AdminCompetitionsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLeagueId]);
+
+  const fetchSeasons = useCallback(async () => {
+    try {
+      const res = await adminFetch("/api/admin/seasons");
+      if (res.ok) {
+        const json = await res.json();
+        setSeasons(json.data || []);
+      }
+    } catch {
+      // Non-critical
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLeagueId]);
 
   useEffect(() => {
     fetchCompetitions();
-  }, [fetchCompetitions]);
+    fetchSeasons();
+  }, [fetchCompetitions, fetchSeasons]);
 
   const openCreateModal = () => {
     setEditingCompetition(null);
     setFormData({
       name: "",
       description: "",
-      seasonId: "",
+      seasonId: activeSeasonId || "",
       type: "individual",
       scoringType: "points",
       countBestN: "",
@@ -312,6 +339,23 @@ export default function AdminCompetitionsPage() {
                   className="w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm"
                   rows={2}
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Season</label>
+                <select
+                  required
+                  value={formData.seasonId}
+                  onChange={(e) => setFormData((p) => ({ ...p, seasonId: e.target.value }))}
+                  className="w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm"
+                >
+                  <option value="">Select a season</option>
+                  {seasons.map((s) => (
+                    <option key={s._id} value={s._id}>
+                      {s.name} {s.isActive ? "(active)" : ""}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

@@ -11,6 +11,7 @@ import { withRateLimit } from "@/middleware/rate-limit";
 import { PersonService } from "@/services/person.service";
 import { ReferenceDataService } from "@/services/reference-data.service";
 import { updatePersonSchema } from "@/lib/validations";
+import { hashPassword } from "@/lib/auth";
 import { connectMongoDB } from "@/lib/db/mongodb";
 import { PersonModel } from "@/models/person.model";
 
@@ -94,7 +95,13 @@ const handlePut: AuthenticatedHandler = async (request) => {
       }
     }
 
-    const person = await personService.update(personId, parsed.data);
+    // Hash password if provided
+    const { password, ...updateData } = parsed.data;
+    if (password) {
+      (updateData as Record<string, unknown>).passwordHash = await hashPassword(password);
+    }
+
+    const person = await personService.update(personId, updateData);
 
     return NextResponse.json({ data: person }, { status: 200 });
   } catch (error) {

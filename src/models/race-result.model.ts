@@ -24,7 +24,6 @@ const RaceResultSchema = new Schema<RaceResultDocument>(
     category: {
       type: String,
       required: true,
-      enum: ["cat1", "cat2", "cat3", "cat4", "cat5", "beginner"],
     },
     position: { type: Number, required: true, min: 1 },
     finishTime: { type: Number, required: true, min: 0 },

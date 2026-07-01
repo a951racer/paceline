@@ -14,10 +14,18 @@ import { AchievementModel } from "@/models/achievement.model";
 
 const achievementService = new AchievementService();
 
-const handleGet: AuthenticatedHandler = async () => {
+const handleGet: AuthenticatedHandler = async (request) => {
   try {
     await connectMongoDB();
-    const achievements = await AchievementModel.find().sort({ createdAt: -1 });
+    const url = new URL(request.url);
+    const leagueId = url.searchParams.get("leagueId");
+    const seasonId = url.searchParams.get("seasonId");
+
+    const query: Record<string, unknown> = {};
+    if (leagueId) query.leagueId = leagueId;
+    if (seasonId) query.seasonId = seasonId;
+
+    const achievements = await AchievementModel.find(query).sort({ createdAt: -1 });
 
     return NextResponse.json({ data: achievements }, { status: 200 });
   } catch (error) {

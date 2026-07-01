@@ -10,6 +10,7 @@ import { withRateLimit } from "@/middleware/rate-limit";
 import { PersonService } from "@/services/person.service";
 import { ReferenceDataService } from "@/services/reference-data.service";
 import { createPersonSchema } from "@/lib/validations";
+import { hashPassword } from "@/lib/auth";
 import type { Role, Category } from "@/types";
 
 const personService = new PersonService();
@@ -98,7 +99,14 @@ const handlePost: AuthenticatedHandler = async (request) => {
       }
     }
 
-    const person = await personService.create(parsed.data);
+    // Hash password if provided
+    const { password, ...personData } = parsed.data;
+    if (password) {
+      (personData as Record<string, unknown>).passwordHash = await hashPassword(password);
+      (personData as Record<string, unknown>).authProvider = "local";
+    }
+
+    const person = await personService.create(personData);
 
     return NextResponse.json({ data: person }, { status: 201 });
   } catch (error) {
